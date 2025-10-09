@@ -6,13 +6,15 @@ This repository provides a computational framework for analyzing ionic current t
 
 
 ## Repository Structure
-├── preprocessing/	# Denoising raw ionic current signal
+```
+├── preprocessing/         # Denoising raw ionic current signal
 ├── segmentation/          # Change point detection and signal segmentation
 ├── features/              # Statistical feature extraction from segments
 ├── dtw/                   # Dynamic Time Warping visualization, classification and barycenter averaging
 ├── lstm/                  # Deep learning classification using LSTM
 ├── hmm/                   # Hidden Markov Model-based sequence analysis
 └── visualization/         # Signal plotting and alignment visualization tools
+```
 
 ## Analysis Pipeline
 
@@ -26,7 +28,7 @@ This repository provides a computational framework for analyzing ionic current t
 ## Requirements
 
 - Python 3.8+
-- ruptures, tslearn, PyTorch, scipy, numpy, scikit-learn
+- ruptures, scipy, numpy, scikit-learn, tslearn, PyTorch
 
 ## Citation
 
