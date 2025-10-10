@@ -7,13 +7,33 @@ This repository provides a computational framework for analyzing ionic current t
 
 ## Repository Structure
 ```
+
+nano_protein_signal/
+├── config/			   # All parameters
+│   └── config.py
 ├── preprocessing/         # Denoising raw ionic current signal
-├── segmentation/          # Change point detection and signal segmentation
-├── features/              # Statistical feature extraction from segments
-├── dtw/                   # Dynamic Time Warping visualization, classification and barycenter averaging
-├── lstm/                  # Deep learning classification using LSTM
+├── segmentation/	  # Change point detection and signal segmentation
+│   ├── __init__.py
+│   ├── filters.py
+│   ├── cost_functions.py
+│   ├── segment_pelt.py
+│   └── segment_dynp.py
+├── features/		# Statistical feature extraction from segments
+│   ├── __init__.py
+│   └── extract_features.py
+├── dtw/                      # Dynamic Time Warping visualization, classification and barycenter averaging
+├── lstm/                     # Deep learning classification using LSTM
 ├── hmm/                   # Hidden Markov Model-based sequence analysis
-└── visualize/         # Signal plotting and alignment visualization tools
+├── visualization/	      # Signal plotting and alignment visualization tools
+│   ├── __init__.py
+│   ├── plot_full_pastor.py
+│   └── plot_single_aa.py
+├── utils/
+│   ├── __init__.py
+│   └── data_loader.py
+└── README.md
+
+
 ```
 
 ## Analysis Pipeline
