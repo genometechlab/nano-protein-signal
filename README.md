@@ -9,28 +9,43 @@ This repository provides a computational framework for analyzing ionic current t
 ```
 
 nano_protein_signal/
-├── config/			   # All parameters
+├── config/				# All parameters
 │   └── config.py
-├── preprocessing/         # Denoising raw ionic current signal
-├── segmentation/	  # Change point detection and signal segmentation
+├── preprocessing/		# Denoising raw ionic current signal
+│   ├── __init__.py
+│   ├── 
+├── segmentation/		# Change point detection and signal segmentation
 │   ├── __init__.py
 │   ├── filters.py
 │   ├── cost_functions.py
 │   ├── segment_pelt.py
 │   └── segment_dynp.py
-├── features/		# Statistical feature extraction from segments
+├── features/			# Statistical feature extraction from segments
 │   ├── __init__.py
 │   └── extract_features.py
-├── dtw/                      # Dynamic Time Warping visualization, classification and barycenter averaging
-├── lstm/                     # Deep learning classification using LSTM
-├── hmm/                   # Hidden Markov Model-based sequence analysis
-├── visualization/	      # Signal plotting and alignment visualization tools
+├── dtw/                      		# Dynamic Time Warping visualization, classification and barycenter averaging
+│   ├── __init__.py
+│   ├── preprocessing
+│   ├── barycenter
+│   ├── classification
+│   └── 
+├── lstm/                     		# Deep learning classification using LSTM
+│   ├── __init__.py
+│   ├── 
+├── hmm/                   		# Hidden Markov Model-based sequence analysis
+│   ├── __init__.py
+│   ├── 
+├── visualization/	    	        # Signal plotting and alignment visualization tools
 │   ├── __init__.py
 │   ├── plot_full_pastor.py
-│   └── plot_single_aa.py
+│   ├── plot_full_pastor.py
+│   ├── plot_dba_centroids.py
+│   ├── plot_dtw_alignment.py
+│   └── 
 ├── utils/
 │   ├── __init__.py
-│   └── data_loader.py
+│   ├── data_loader.py
+│   └── dtw_utils
 └── README.md
 
 
