@@ -45,3 +45,27 @@ N_JOBS = 18
 COLOR_CYCLE = ['#E69F00', '#56B4E9', '#009E73', '#F0E442', '#0072B2', '#D55E00', '#CC79A7']
 FIG_SIZE_FULL = (20, 24)
 FIG_SIZE_SINGLE = (12, 6)
+
+
+# DTW/DBA parameters
+FIXED_SEG_LEN = 80  # Length to interpolate segments for DBA
+FIXED_YLIM = (-4, 4)  # Y-axis limits for centroid plots
+
+# Grid search parameters
+COARSE_GRID = [(a, 1.0 - a) for a in np.linspace(0.5, 1.0, 6)]
+FINE_GRID = [(a, 1.0 - a) for a in np.linspace(0.7, 1.0, 11)]
+
+# DBA trace filtering (set to None to disable)
+DBA_MIN_SEGMENTS = None  # Minimum number of segments per trace
+DBA_MAX_SEGMENTS = None  # Maximum number of segments per trace
+DBA_MIN_TRACE_LENGTH = None  # Minimum total trace length
+DBA_MAX_TRACE_LENGTH = None  # Maximum total trace length
+
+# Amino acids for DBA (set to None for all available)
+DBA_TARGET_AAS = None  # e.g. ['A', 'D'] or None for all
+
+# Cross-validation
+N_FOLDS = 3
+
+# Output directory for DTW results
+DTW_OUTPUT_DIR = "./output/dtw"
