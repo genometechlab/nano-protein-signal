@@ -31,7 +31,12 @@ nano_protein_signal/
 │   └── 
 ├── lstm/                     		# Deep learning classification using LSTM
 │   ├── __init__.py
-│   ├── 
+│   ├── models.py
+│   ├── dataset.py
+│   ├── train.py
+│   ├── run_multiclass.py      # 20-way amino acid classification
+│   ├── run_pairwise.py         # All pairwise combinations
+│   └── run_multigroup.py       # N-way group classification
 ├── hmm/                   		# Hidden Markov Model-based sequence analysis
 │   ├── __init__.py
 │   ├── 
