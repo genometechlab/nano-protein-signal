@@ -3,6 +3,7 @@ Configuration file for nanopore protein signal analysis
 Modify parameters here for different analysis needs
 """
 #####################################Segmentation###########################################
+
 # Data paths
 DATA_PATH = "./data/raw_denoised_all_PASTOR_boundries.json"
 OUTPUT_DIR = "./output"
@@ -31,7 +32,7 @@ PELT_SCALE = 1
 
 # Segmentation parameters - Dynamic Programming
 DYNP_N_BKPS = 34
-DYNP_MIN_SIZE = 15
+DYNP_MIN_SIZE = 30
 DYNP_SCALE = 1
 
 # Length filtering (set to None to disable)
@@ -47,6 +48,7 @@ FIG_SIZE_FULL = (20, 24)
 FIG_SIZE_SINGLE = (12, 6)
 
 #####################################DTW###########################################
+
 # DTW/DBA parameters
 FIXED_SEG_LEN = 80  # Length to interpolate segments for DBA
 FIXED_YLIM = (-4, 4)  # Y-axis limits for centroid plots
@@ -71,6 +73,7 @@ N_FOLDS = 3
 DTW_OUTPUT_DIR = "./output/dtw"
 
 #####################################LSTM###########################################
+
 # LSTM parameters
 LSTM_INPUT_SIZE = 8  # Number of features per segment
 LSTM_HIDDEN_SIZE = 64

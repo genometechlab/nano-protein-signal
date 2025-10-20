@@ -9,48 +9,41 @@ This repository provides a computational framework for analyzing ionic current t
 ```
 
 nano_protein_signal/
-├── config/				# All parameters
+├── config/	        # All parameters
 │   └── config.py
-├── preprocessing/		# Denoising raw ionic current signal
-│   ├── __init__.py
+├── preprocessing/      # Denoising raw ionic current signal
 │   ├── 
-├── segmentation/		# Change point detection and signal segmentation
-│   ├── __init__.py
+├── segmentation/       # Change point detection and signal segmentation
 │   ├── filters.py
 │   ├── cost_functions.py
 │   ├── segment_pelt.py
 │   └── segment_dynp.py
-├── features/			# Statistical feature extraction from segments
-│   ├── __init__.py
+├── features/       # Statistical feature extraction from segments
 │   └── extract_features.py
-├── dtw/                      		# Dynamic Time Warping visualization, classification and barycenter averaging
-│   ├── __init__.py
+├── dtw/        # Dynamic Time Warping visualization, classification and barycenter averaging
 │   ├── preprocessing
 │   ├── barycenter
-│   ├── classification
-│   └── 
-├── lstm/                     		# Deep learning classification using LSTM
-│   ├── __init__.py
+│   └──  classification
+├── lstm/       # Deep learning classification using LSTM
 │   ├── models.py
 │   ├── dataset.py
 │   ├── train.py
-│   ├── run_multiclass.py      # 20-way amino acid classification
+│   ├── run_multiclass.py       # 20-way amino acid classification
 │   ├── run_pairwise.py         # All pairwise combinations
 │   └── run_multigroup.py       # N-way group classification
-├── hmm/                   		# Hidden Markov Model-based sequence analysis
-│   ├── __init__.py
+├── hmm/        # Hidden Markov Model-based sequence analysis
 │   ├── 
-├── visualization/	    	        # Signal plotting and alignment visualization tools
-│   ├── __init__.py
+│   ├── 
+├── visualization/      # Signal plotting and alignment visualization tools
 │   ├── plot_full_pastor.py
 │   ├── plot_full_pastor.py
 │   ├── plot_dba_centroids.py
 │   ├── plot_dtw_alignment.py
 │   └── 
 ├── utils/
-│   ├── __init__.py
 │   ├── data_loader.py
 │   └── dtw_utils
+├── requirements        # required libraries
 └── README.md
 
 
@@ -66,9 +59,6 @@ nano_protein_signal/
 5. **Modeling**: Apply HMMs to capture temporal dependencies in translocation signals
 
 
-## Requirements
-- Python 3.8+
-- ruptures, scipy, numpy, scikit-learn, tslearn, PyTorch
 
 ## Citation
 
