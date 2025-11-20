@@ -23,7 +23,7 @@ nano_protein_signal/
 ├── dtw/        # Dynamic Time Warping visualization, classification and barycenter averaging
 │   ├── preprocessing
 │   ├── barycenter
-│   └──  classification
+│   └── classification
 ├── lstm/       # Deep learning classification using LSTM
 │   ├── models.py
 │   ├── dataset.py
