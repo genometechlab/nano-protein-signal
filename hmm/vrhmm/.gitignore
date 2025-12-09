@@ -1,0 +1,50 @@
+
+# Jupyter Notebook checkpoints
+**/.ipynb_checkpoints/
+*.ipynb_checkpoints
+
+# Results directory
+results/
+
+# Python build artifacts
+*.egg-info/
+build/
+dist/
+*.so
+*.dylib
+*.dll
+*.pyd
+
+# Python compiled files
+__pycache__/
+*.py[cod]
+*$py.class
+*.pyc
+
+# Virtual environments
+venv/
+env/
+ENV/
+.venv
+
+# IDE/Editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+
+# Model checkpoints
+checkpoints/
+*.ckpt
+*.pth
+*.h5
+*.pkl
+*.joblib
