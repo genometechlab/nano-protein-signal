@@ -185,6 +185,16 @@ class PipelineRunner:
                 data = [s for s in data if s.get('aa') == self.args.test_aa]
                 logger.info(f"Filtered to {len(data)} signals for amino acid {self.args.test_aa}")
 
+            # Filter by classification mode
+            if self.args.classification_mode != '20way':
+                from vrhmm.utils.amino_acids import get_all_categories, get_amino_acids_in_category
+                valid_aas = set()
+                for cat in get_all_categories(self.args.classification_mode):
+                    valid_aas.update(get_amino_acids_in_category(cat, self.args.classification_mode))
+                original_count = len(data)
+                data = [s for s in data if s.get('aa') in valid_aas]
+                logger.info(f"Filtered to {len(data)}/{original_count} signals for {self.args.classification_mode} mode")
+
         return data or []
 
     def _collect_variances(
@@ -223,7 +233,7 @@ class PipelineRunner:
                                     seg_array = np.array(seg).flatten()
                                     if len(seg_array) > 0:
                                         variances.append(float(np.var(seg_array)))
-                            if len(variances) == 35:
+                            if len(variances) > 0:
                                 collectors[aa].add_signal_variances(variances)
                                 processed += 1
                         else:
@@ -269,7 +279,10 @@ class PipelineRunner:
 
             try:
                 model = constructor.build_hmm_from_arrays(
-                    aa, profile_arrays, segment_variances
+                    aa, 
+                    profile_arrays, 
+                    segment_variances,
+                    expected_length = None # This uses the natural profile length
                 )
                 classifier.add_model(aa, model)
                 logger.debug(f"Built model for {aa}")

@@ -11,10 +11,8 @@ import numpy.typing as npt
 logger = logging.getLogger(__name__)
 
 class SignalProcessor:
-    """Handles signal processing operations."""
 
     def __init__(self, config: Dict[str, Any]) -> None:
-        
         self.config = config
 
     def process_signal(
@@ -24,7 +22,6 @@ class SignalProcessor:
             classifier: Any,
             seg_mode: str = 'dynp'
     ) -> Dict[str, Any]:
-        """Process a single signal through the pipeline."""
         # Parse signal
         raw_data = record['cleaned_segment']
         signal, is_presegmented = self._parse_signal_data(raw_data)
@@ -48,8 +45,16 @@ class SignalProcessor:
         # Classify
         pred_category, log_prob, all_scores = classifier.predict(z_means)
 
-        # Get state path
-        best_model_aa = max(all_scores.keys(), key=lambda k: all_scores[k])
+        # Get best amino acid model (not category)
+        # Score against all AA models directly to find best one for Viterbi
+        aa_scores = {}
+        for aa, model in classifier.hmm_models.items():
+            try:
+                aa_scores[aa] = model.log_probability(z_means)
+            except:
+                aa_scores[aa] = float('-inf')
+        
+        best_model_aa = max(aa_scores.keys(), key=lambda k: aa_scores[k])
         best_model = classifier.hmm_models[best_model_aa]
 
         state_sequence = []
@@ -78,22 +83,15 @@ class SignalProcessor:
             'full_path': full_path,
             'num_segments': len(segment_results['means']),
             'predicted_category': pred_category,
-            'all_scores': all_scores
+            'all_scores': all_scores,
+            'best_aa_model': best_model_aa
         }
 
-    def parse_signal(
-            self,
-            signal_value: Any
-    ) -> npt.NDArray[np.float64]:
-        """Parse signal data from various formats."""
+    def parse_signal(self, signal_value: Any) -> npt.NDArray[np.float64]:
         signal, _ = self._parse_signal_data(signal_value)
         return signal
 
-    def _parse_signal_data(
-            self,
-            signal_value: Any
-    ) -> tuple[npt.NDArray[np.float64], bool]:
-        """Parse signal and detect if presegmented."""
+    def _parse_signal_data(self, signal_value: Any) -> tuple[npt.NDArray[np.float64], bool]:
         is_presegmented = False
 
         if isinstance(signal_value, str):
@@ -124,11 +122,7 @@ class SignalProcessor:
 
         return signal, is_presegmented
 
-    def _process_presegmented(
-            self,
-            raw_segments: List[Any]
-    ) -> Dict[str, Any]:
-        """Process pre-segmented data."""
+    def _process_presegmented(self, raw_segments: List[Any]) -> Dict[str, Any]:
         means = []
         variances = []
         breakpoints = [0]
@@ -152,26 +146,16 @@ class SignalProcessor:
             'breakpoints': breakpoints
         }
 
-    def _z_normalize_means(
-            self,
-            means: npt.NDArray[np.float64]
-    ) -> npt.NDArray[np.float64]:
-        """Z-normalize segment means."""
+    def _z_normalize_means(self, means: npt.NDArray[np.float64]) -> npt.NDArray[np.float64]:
         mean_val = np.mean(means)
         std_val = np.std(means, ddof=1)
-
         if std_val == 0:
             return means - mean_val
         return (means - mean_val) / std_val
 
-    def _z_normalize_signal(
-            self,
-            signal: npt.NDArray[np.float64]
-    ) -> npt.NDArray[np.float64]:
-        """Z-normalize entire signal."""
+    def _z_normalize_signal(self, signal: npt.NDArray[np.float64]) -> npt.NDArray[np.float64]:
         mean_val = np.mean(signal)
         std_val = np.std(signal)
-
         if std_val > 0:
             return (signal - mean_val) / std_val
         return signal - mean_val

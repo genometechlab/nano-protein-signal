@@ -25,12 +25,12 @@ class Config:
 
     # HMM transition probabilities
     HMM_TRANSITIONS: Dict[str, float] = {
-        'match_self_loop': 0.013513513513513514,
-        'forward': 0.675675675675675,
-        'to_skip': 0.2027027027027027,
-        'to_slip': 0.06756756756756757,
-        'to_end': 0.04054054054054054,
-        'to_insert': 0.03,
+        'match_self_loop': 0.020202020202020204,
+        'forward': 0.6060606060606061,
+        'to_skip': 0.20202020202020204,
+        'to_slip': 0.10101010101010102,
+        'to_end': 0.05050505050505051,
+        'to_insert': 0.020202020202020204,
         'skip_to_match': 0.95,
         'skip_continue': 0.05,
         'insert_self_loop': 0.05,

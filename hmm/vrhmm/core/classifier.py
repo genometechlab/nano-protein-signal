@@ -16,26 +16,30 @@ from vrhmm.utils.amino_acids import (
 logger = logging.getLogger(__name__)
 
 class HMMClassifier:
-    """Multi-way classifier using HMM profiles for amino acid prediction."""
-
     def __init__(
             self,
             classification_mode: str = '20way',
             hmm_models: Optional[Dict[str, Any]] = None,
             use_length_normalization: bool = False
     ) -> None:
-        
         self.classification_mode = classification_mode
         self.hmm_models = hmm_models or {}
+        self.model_lengths: Dict[str, int] = {}  # NEW: Track lengths
         self.categories = get_all_categories(classification_mode)
         self.use_length_normalization = use_length_normalization
-
         logger.info(f"Initialized HMMClassifier with {classification_mode} mode")
 
     def add_model(self, identifier: str, model: Any) -> None:
-        
         self.hmm_models[identifier] = model
-        logger.debug(f"Added model for {identifier}")
+        # Track model length
+        match_count = sum(1 for state in model.states 
+                        if hasattr(state, 'name') and state.name and 'Match' in state.name)
+        self.model_lengths[identifier] = match_count
+        logger.debug(f"Added model for {identifier} with {match_count} match states")
+    
+    def get_model_length(self, identifier: str) -> int:
+        """Get number of match states for a model."""
+        return self.model_lengths.get(identifier, 35)
 
     def predict(
             self,

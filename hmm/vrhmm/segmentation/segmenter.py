@@ -18,27 +18,43 @@ logger = logging.getLogger(__name__)
 class SegmentVarianceCollector:
     """Collects segment variances across multiple signals."""
 
-    def __init__(self, expected_segments: int = 35) -> None:
-        
+    def __init__(self, expected_segments: Optional[int] = None) -> None:
+        """
+        Args:
+            expected_segments: If None, grows dynamically. If set, pre-allocates.
+        """
         self.expected_segments = expected_segments
-        self.variance_lists: List[List[float]] = [[] for _ in range(expected_segments)]
+        if expected_segments:
+            self.variance_lists: List[List[float]] = [[] for _ in range(expected_segments)]
+        else:
+            self.variance_lists: List[List[float]] = []
+        self._max_observed = 0
 
     def add_signal_variances(self, variances: List[float]) -> None:
+        """Add variances from a signal, growing list if needed."""
+        # Grow the list if we see more segments
+        while len(self.variance_lists) < len(variances):
+            self.variance_lists.append([])
         
         for i, var in enumerate(variances):
-            if i < self.expected_segments:
-                self.variance_lists[i].append(var)
+            self.variance_lists[i].append(var)
+        
+        self._max_observed = max(self._max_observed, len(variances))
 
     def get_average_variances(
             self,
             max_samples: int = 10
     ) -> List[npt.NDArray[np.float64]]:
-        
         result = []
         for var_list in self.variance_lists:
             limited_list = var_list[:max_samples]
             result.append(np.array(limited_list, dtype=np.float64))
         return result
+    
+    @property
+    def num_segments(self) -> int:
+        """Return the number of segments observed."""
+        return len(self.variance_lists)
 
 class Segmenter:
     """Class for segmenting signals and extracting segment statistics."""

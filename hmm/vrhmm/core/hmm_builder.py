@@ -1,4 +1,7 @@
-"""HMM model construction with Match, Insert, Skip, and Slip states."""
+"""HMM model construction with Match, Insert, Skip, and Slip states.
+
+Supports variable-length profiles per amino acid.
+"""
 
 import logging
 from typing import Dict, List, Optional, Tuple, Any
@@ -10,6 +13,7 @@ from vrhmm.yahmm import yahmm
 
 logger = logging.getLogger(__name__)
 
+
 class HMMConstructor:
     """Constructs HMM models for nanopore data with variable rate states."""
 
@@ -17,9 +21,10 @@ class HMMConstructor:
             self,
             config: Optional[Dict[str, Any]] = None,
             variance_mode: str = 'barycenter',
-            variance_scale: float = 80.0
+            variance_scale: float = 80.0,
+            enforce_length: bool = False,  # NEW: Option to enforce fixed length
+            default_length: int = 35       # NEW: Default only used if enforce_length=True
     ) -> None:
-        
         if config is None:
             from vrhmm.config import CONFIG
             self.config = CONFIG['hmm']
@@ -28,8 +33,11 @@ class HMMConstructor:
 
         self.variance_mode = variance_mode
         self.variance_scale = variance_scale
+        self.enforce_length = enforce_length
+        self.default_length = default_length
 
-        logger.info(f"Initialized HMMConstructor with variance_mode={variance_mode}")
+        logger.info(f"Initialized HMMConstructor with variance_mode={variance_mode}, "
+                    f"enforce_length={enforce_length}")
 
     def build_hmm_from_arrays(
             self,
@@ -37,9 +45,31 @@ class HMMConstructor:
             profile_arrays: List[npt.NDArray[np.float64]],
             segment_variances: Optional[List[npt.NDArray[np.float64]]] = None,
             model_name: Optional[str] = None,
-            expected_length: int = 35
+            expected_length: Optional[int] = None  # Now optional - uses profile length if None
     ) -> yahmm.Model:
-        """Build an HMM model from profile arrays."""
+        """Build an HMM model from profile arrays.
+        
+        Args:
+            amino_acid: Single letter amino acid code
+            profile_arrays: List of segment arrays from barycenter
+            segment_variances: Optional empirical variances per segment
+            model_name: Optional custom model name
+            expected_length: If None, uses len(profile_arrays). If set, will pad/truncate.
+        
+        Returns:
+            yahmm.Model with match states equal to len(profile_arrays) or expected_length
+        """
+        # Determine actual number of states from profile
+        actual_length = len(profile_arrays)
+        
+        # Decide target length
+        if expected_length is not None:
+            target_length = expected_length
+        elif self.enforce_length:
+            target_length = self.default_length
+        else:
+            target_length = actual_length  # Use natural profile length
+        
         segment_dict = {}
 
         for i, segment_array in enumerate(profile_arrays):
@@ -66,30 +96,53 @@ class HMMConstructor:
             segment_dict[str(i)] = (seg_mean, seg_std)
 
         if model_name is None:
-            model_name = f"HMM_{amino_acid}_{self.variance_mode}"
+            model_name = f"HMM_{amino_acid}_{self.variance_mode}_n{actual_length}"
 
-        return self._build_hmm(segment_dict, model_name, expected_length)
+        return self._build_hmm(segment_dict, model_name, target_length, amino_acid)
 
     def _build_hmm(
             self,
             segment_dict: Dict[str, Tuple[float, float]],
             model_name: Optional[str] = None,
-            expected_length: int = 35
+            target_length: Optional[int] = None,
+            amino_acid: str = "?"
     ) -> yahmm.Model:
-        """Build HMM with specified segment statistics."""
+        """Build HMM with specified segment statistics.
+        
+        Now respects the actual profile length unless explicitly told to enforce a length.
+        """
         segment_list = list(segment_dict.keys())
+        actual_length = len(segment_list)
+        
+        # If no target specified, use actual length
+        if target_length is None:
+            target_length = actual_length
 
-        if len(segment_list) != expected_length:
-            logger.warning(f"Segment list has {len(segment_list)} segments, expected {expected_length}")
-            if len(segment_list) < expected_length:
-                last_key = segment_list[-1]
-                last_stats = segment_dict[last_key]
-                for i in range(len(segment_list), expected_length):
-                    new_key = str(i)
-                    segment_dict[new_key] = last_stats
-                    segment_list.append(new_key)
+        if actual_length != target_length:
+            if self.enforce_length:
+                # Old behavior: pad or truncate
+                logger.warning(
+                    f"[{amino_acid}] Profile has {actual_length} segments, "
+                    f"enforcing {target_length} (enforce_length=True)"
+                )
+                if actual_length < target_length:
+                    # Pad with last segment stats
+                    last_key = segment_list[-1]
+                    last_stats = segment_dict[last_key]
+                    for i in range(actual_length, target_length):
+                        new_key = str(i)
+                        segment_dict[new_key] = last_stats
+                        segment_list.append(new_key)
+                else:
+                    # Truncate
+                    segment_list = segment_list[:target_length]
             else:
-                segment_list = segment_list[:expected_length]
+                # NEW behavior: accept the natural length, just log it
+                logger.info(
+                    f"[{amino_acid}] Building HMM with {actual_length} match states "
+                    f"(profile-defined length)"
+                )
+                target_length = actual_length
 
         probs = self.config.get('transitions', {})
         return self._create_profile_hmm(segment_list, segment_dict, probs, model_name)
@@ -101,7 +154,6 @@ class HMMConstructor:
             probabilities: Dict[str, float],
             model_name: Optional[str] = None
     ) -> yahmm.Model:
-        
         model = yahmm.Model(name=model_name or "Profile_HMM")
         n_states = len(segment_list)
 
@@ -120,11 +172,14 @@ class HMMConstructor:
 
         model.bake()
 
+        # Count non-None states for logging
+        n_insert = len([s for s in insert_states if s is not None])
+        n_skip = len([s for s in skip_states if s is not None])
+        n_slip = len([s for s in slip_states if s is not None])
+
         logger.info(
-            f"Profile HMM created with {len(match_states)} match, "
-            f"{len([s for s in insert_states if s])} insert, "
-            f"{len([s for s in skip_states if s])} skip, "
-            f"and {len([s for s in slip_states if s])} slip states"
+            f"Profile HMM '{model_name}' created with {len(match_states)} match, "
+            f"{n_insert} insert, {n_skip} skip, and {n_slip} slip states"
         )
 
         return model
@@ -169,7 +224,6 @@ class HMMConstructor:
             segment_list: List[str],
             segment_dict: Dict[str, Tuple[float, float]]
     ) -> Tuple[List[Any], List[Optional[Any]], List[Optional[Any]], List[Optional[Any]]]:
-        
         n_states = len(segment_list)
         match_states = []
         insert_states = []
@@ -187,7 +241,7 @@ class HMMConstructor:
             model.add_state(match_st)
             match_states.append(match_st)
 
-            # Insert state
+            # Insert state (between current and next)
             if i < n_states - 1:
                 next_seg_mean, next_seg_std = segment_dict[segment_list[i + 1]]
                 insert_mean = (seg_mean + next_seg_mean) / 2.0
@@ -207,8 +261,9 @@ class HMMConstructor:
             else:
                 insert_states.append(None)
 
-            # Skip state
-            is_required = (i == 0 or i == 1 or i == n_states - 2 or i == n_states - 1)
+            # Skip state - dynamic boundary check based on actual n_states
+            # Protect first 2 and last 2 states from being skipped
+            is_required = (i < 2 or i >= n_states - 2)
             if i < n_states - 1 and not is_required:
                 skip_st = yahmm.State(None, name=f"Skip_{i}")
                 model.add_state(skip_st)
@@ -216,7 +271,7 @@ class HMMConstructor:
             else:
                 skip_states.append(None)
 
-            # Slip state
+            # Slip state (backslip from current to previous)
             if i > 1:
                 slip_st = yahmm.State(None, name=f"Slip_{i}")
                 model.add_state(slip_st)
@@ -235,7 +290,6 @@ class HMMConstructor:
             slip_states: List[Optional[Any]],
             probs: Dict[str, float]
     ) -> None:
-        
         n_states = len(match_states)
 
         # Start transition
@@ -245,8 +299,10 @@ class HMMConstructor:
         for i in range(n_states):
             match_i = match_states[i]
             is_last = (i == n_states - 1)
-            is_required_start = (i == 0 or i == 1)
-            is_required_end = (i == n_states - 2 or i == n_states - 1)
+            
+            # Dynamic boundary protection based on actual model size
+            is_required_start = (i < 2)
+            is_required_end = (i >= n_states - 2)
 
             # Self-loop
             model.add_transition(match_i, match_i, probs['match_self_loop'])
@@ -263,9 +319,9 @@ class HMMConstructor:
             if insert_states[i] is not None and not is_required_start and not is_required_end:
                 model.add_transition(match_i, insert_states[i], probs['match_to_insert'])
 
-            # To skip state
+            # To skip state - check bounds dynamically
             if skip_states[i] is not None and not is_required_start and not is_required_end:
-                if i < n_states - 3:
+                if i < n_states - 3:  # Can't skip too close to end
                     model.add_transition(match_i, skip_states[i], probs['match_to_skip'])
 
             # To slip state
@@ -306,3 +362,9 @@ class HMMConstructor:
 
                 if i > 2 and slip_states[i - 1] is not None:
                     model.add_transition(slip_i, slip_states[i - 1], probs['slip_continue'])
+
+    def get_model_length(self, model: yahmm.Model) -> int:
+        """Get the number of match states in a model."""
+        match_count = sum(1 for state in model.states 
+                         if hasattr(state, 'name') and state.name and 'Match' in state.name)
+        return match_count

@@ -27,36 +27,52 @@ class HMMSegmentReorganizer:
             self.backslip_mode = 'delete'
 
     def reorganize_segments(
-            self,
-            original_segments: List[np.ndarray],
-            full_path: List[str],
-            segment_results: Dict[str, Any]
-    ) -> Tuple[List[np.ndarray], List[int], Dict[str, Any]]:
+        self,
+        original_segments: List[np.ndarray],
+        full_path: List[str],
+        segment_results: Dict[str, Any],
+        num_match_states: Optional[int] = None  # NEW parameter
+) -> Tuple[List[np.ndarray], List[int], Dict[str, Any]]:
         """Reorganize segments based on HMM alignment."""
+        
+        # Determine number of match states from path if not provided
+        if num_match_states is None:
+            match_indices_in_path = set()
+            for state in full_path:
+                if 'Match' in state:
+                    try:
+                        idx = int(state.split('_')[1])
+                        match_indices_in_path.add(idx)
+                    except (ValueError, IndexError):
+                        pass
+            num_match_states = max(match_indices_in_path) + 1 if match_indices_in_path else 35
+        
         segment_to_state_mapping = self._map_segments_to_states(full_path)
         grouped_segments = self._group_segments_by_match_state(
             original_segments, segment_to_state_mapping
         )
         reorganized = self._process_grouped_segments(grouped_segments)
-
+    
         match_indices = sorted(reorganized.keys())
         reorganized_segments = []
-
-        for idx in range(35):
+    
+        # Use dynamic length instead of hardcoded 35
+        for idx in range(num_match_states):
             if idx in reorganized:
                 reorganized_segments.append(reorganized[idx])
             else:
                 reorganized_segments.append(np.array([]))
-
+    
         metadata = {
             'original_count': len(original_segments),
             'reorganized_count': len(reorganized_segments),
+            'num_match_states': num_match_states,
             'backslip_mode': self.backslip_mode,
             'match_indices': match_indices,
             'original_path': full_path,
             'segment_mapping': segment_to_state_mapping
         }
-
+    
         return reorganized_segments, match_indices, metadata
 
     def _map_segments_to_states(
