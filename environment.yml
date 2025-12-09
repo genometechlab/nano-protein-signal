@@ -1,4 +1,4 @@
-name: YAHMM
+name: vrhmm
 channels:
   - conda-forge
 dependencies:
