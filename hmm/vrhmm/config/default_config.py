@@ -25,18 +25,18 @@ class Config:
 
     # HMM transition probabilities
     HMM_TRANSITIONS: Dict[str, float] = {
-        'match_self_loop': 0.020202020202020204,
-        'forward': 0.6060606060606061,
-        'to_skip': 0.20202020202020204,
-        'to_slip': 0.10101010101010102,
-        'to_end': 0.05050505050505051,
-        'to_insert': 0.020202020202020204,
-        'skip_to_match': 0.95,
-        'skip_continue': 0.05,
-        'insert_self_loop': 0.05,
-        'insert_to_match': 0.95,
-        'slip_to_match': 0.92,
-        'slip_continue': 0.08
+        "match_self_loop": 0.012345679012345678,
+        "forward": 0.6790123456790124,
+        "to_skip": 0.12345679012345678,
+        "to_slip": 0.08641975308641976,
+        "to_end": 0.037037037037037035,
+        "to_insert": 0.06172839506172839,
+        "skip_to_match": 0.95,
+        "skip_continue": 0.05,
+        "insert_self_loop": 0.05,
+        "insert_to_match": 0.95,
+        "slip_to_match": 0.92,
+        "slip_continue": 0.08
     }
 
     # Classification modes

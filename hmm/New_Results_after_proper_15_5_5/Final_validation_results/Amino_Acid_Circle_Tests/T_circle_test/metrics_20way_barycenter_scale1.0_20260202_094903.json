@@ -1,0 +1,11 @@
+{
+  "accuracy": 1.0,
+  "correct": 5,
+  "total": 5,
+  "confusion_matrix": {
+    "T": {
+      "T": 5
+    }
+  },
+  "classification_mode": "20way"
+}

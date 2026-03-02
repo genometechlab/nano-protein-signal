@@ -1,0 +1,14 @@
+{
+  "match_self_loop": 0.05378784191772336,
+  "forward": 0.7574121844878973,
+  "to_skip": 0.1711270226229951,
+  "to_slip": 0.008415690938754416,
+  "to_insert": 0.008415690938754416,
+  "to_end": 0.0008415690938754415,
+  "insert_self_loop": 0.3,
+  "insert_to_match": 0.7,
+  "skip_to_match": 0.9,
+  "skip_continue": 0.1,
+  "slip_to_match": 0.92,
+  "slip_continue": 0.08
+}

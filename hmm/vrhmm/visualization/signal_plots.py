@@ -1,10 +1,31 @@
 """Signal visualization utilities for HMM analysis."""
 
-import warnings
-warnings.filterwarnings("ignore", category=UserWarning, module="matplotlib")
-warnings.filterwarnings("ignore", category=FutureWarning, module="matplotlib")
+"""Logging configuration to suppress noisy libraries."""
 
 import logging
+import warnings
+
+def configure_logging():
+    """Suppress verbose logging from matplotlib and related libraries."""
+    warnings.filterwarnings("ignore", category=UserWarning, module="matplotlib")
+    warnings.filterwarnings("ignore", category=FutureWarning, module="matplotlib")
+    
+    noisy_loggers = [
+        'matplotlib',
+        'matplotlib.font_manager',
+        'matplotlib.backends',
+        'fontTools',
+        'fontTools.subset',
+        'PIL',
+        'PIL.PngImagePlugin'
+    ]
+    
+    for logger_name in noisy_loggers:
+        logging.getLogger(logger_name).setLevel(logging.WARNING)
+    
+    # Even more aggressive for fontTools
+    logging.getLogger('fontTools.subset').setLevel(logging.ERROR)
+
 from pathlib import Path
 from typing import Dict, Any, List, Optional, Tuple
 from collections import defaultdict

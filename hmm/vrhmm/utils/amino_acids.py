@@ -22,6 +22,26 @@ AMINO_ACIDS_4WAY: Dict[str, List[str]] = {
     'small': ['G', 'A', 'S', 'T', 'C', 'N', 'Q', 'P']
 }
 
+# 5-way classification: molecular size
+AMINO_ACIDS_5WAY_SIZE: Dict[str, List[str]] = {
+    'very_small': ['G', 'A', 'S'],
+    'small': ['C', 'D', 'N', 'P', 'T', 'V'],
+    'medium': ['E', 'I', 'L', 'Q'],
+    'large': ['H', 'K', 'M', 'F'],
+    'very_large': ['R', 'W', 'Y']
+}
+
+# 3-way classification: charge and neutral
+AMINO_ACIDS_3WAY: Dict[str, List[str]] = {
+    'positive': ['K', 'R', 'H'],
+    'negative': ['D', 'E'],
+    'neutral': [
+        'S', 'T', 'N', 'Q', 'C',
+        'G', 'A', 'V', 'L', 'I', 'M', 'P',
+        'F', 'W', 'Y'
+               ]
+}
+
 # Biological classification: standard biochemical categories
 AMINO_ACIDS_BIOLOGICAL: Dict[str, List[str]] = {
     'acidic': ['D', 'E'],
@@ -39,6 +59,10 @@ def get_classification_mode(mode: str) -> Dict[str, List[str]]:
         return AMINO_ACIDS_4WAY
     elif mode == 'biological':
         return AMINO_ACIDS_BIOLOGICAL
+    elif mode == '5way_size':
+        return AMINO_ACIDS_5WAY_SIZE
+    elif mode == '3way':
+        return AMINO_ACIDS_3WAY
     elif mode == '20way':
         return {aa: [aa] for aa in AMINO_ACIDS_20WAY}
     else:

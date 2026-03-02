@@ -159,37 +159,57 @@ class DataLoader:
         return None
 
     def _filter_by_metadata(self, df: pd.DataFrame) -> pd.DataFrame:
-        """Filter dataframe by metadata traces using metadata (peptide), channel, and variable_region (AA)."""
+        """Filter dataframe by metadata traces using full_metadata, channel, variable_region, and df_index."""
         logger.info(f"DataFrame shape before filtering: {df.shape}")
-
+    
         filtered_dfs = []
         matched_count = 0
-
+        
         for trace in self.metadata_traces:
-            channel = float(trace['Channel'])  # Convert to float to match df
-            peptide_group = trace['Run']  # e.g., "HDKER", "AVLIM"
-            amino_acid = trace['AA']  # e.g., "D", "A", "W"
-
-            # Match on: metadata (peptide) AND channel AND variable_region (AA)
-            trace_data = df[
-                (df['metadata'].str.startswith(peptide_group)) &
+            channel = float(trace['Channel'])
+            amino_acid = trace['AA']
+            
+            # Build filter conditions
+            conditions = (
                 (df['channel'] == channel) &
                 (df['variable_region'] == amino_acid)
-                ]
-
+            )
+            
+            # Use full_metadata for exact match if available
+            if 'full_metadata' in trace and trace['full_metadata']:
+                full_meta = trace['full_metadata']
+                conditions = conditions & (df['metadata'] == full_meta)
+            else:
+                # Fallback to startswith for backwards compatibility
+                peptide_group = trace['Run']
+                conditions = conditions & (df['metadata'].str.startswith(peptide_group))
+            
+            # Use df_index for exact match if available
+            if 'df_index' in trace and trace['df_index'] is not None:
+                df_index = str(trace['df_index'])
+                conditions = conditions & (df['df_index'].astype(str) == df_index)
+            
+            trace_data = df[conditions]
+    
             if not trace_data.empty:
+                # Take only the first match to avoid duplicates
+                if len(trace_data) > 1:
+                    logger.warning(f"  ⚠ Multiple matches ({len(trace_data)}) for trace, taking first")
+                    trace_data = trace_data.head(1)
+                
                 matched_count += len(trace_data)
-                logger.info(f"  ✓ Found {len(trace_data)} match(es) for {peptide_group} Ch{channel} AA={amino_acid}")
+                logger.debug(f"  ✓ Found match for {trace.get('full_metadata', trace['Run'])} Ch{channel} AA={amino_acid}")
                 filtered_dfs.append(trace_data)
             else:
-                logger.warning(f"  ✗ No match for {peptide_group} Ch{channel} AA={amino_acid}")
-
+                logger.warning(f"  ✗ No match for {trace.get('full_metadata', trace['Run'])} Ch{channel} AA={amino_acid} idx={trace.get('df_index')}")
+    
         if filtered_dfs:
             result = pd.concat(filtered_dfs, ignore_index=True)
-            logger.info(
-                f"✓ Metadata filtering: {matched_count} traces matched from {len(self.metadata_traces)} specified")
+            # Final deduplication just in case
+            result = result.drop_duplicates(subset=['metadata', 'channel', 'variable_region', 'df_index'])
+            logger.info(f"✓ Metadata filtering: {len(result)} unique traces matched from {len(self.metadata_traces)} specified")
             return result
-
+    
         logger.warning("✗ No traces matched metadata filters!")
         return pd.DataFrame()
 

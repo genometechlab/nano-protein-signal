@@ -1,0 +1,36 @@
+{
+  "timestamp": "20260128_114127",
+  "best_accuracy": 19.6,
+  "best_scales": {
+    "A": 0.1788034381137436,
+    "C": 0.45371269554185994,
+    "D": 0.8621537449283911,
+    "E": 0.5148510690875652,
+    "F": 0.17224830267331984,
+    "G": 0.8831189996696065,
+    "H": 1.2956187009125337,
+    "I": 0.43794596065815206,
+    "K": 0.5257455217943212,
+    "L": 0.70973990440985,
+    "M": 0.6001846561901417,
+    "N": 0.6082568437789921,
+    "P": 2.800269062558561,
+    "Q": 0.2755991817204097,
+    "R": 0.6160751142849772,
+    "S": 3.891330108506201,
+    "T": 2.4521541668066758,
+    "V": 0.6176251407779101,
+    "W": 0.8757512421469741,
+    "Y": 0.24532837368000676
+  },
+  "n_calls": 5056,
+  "batch_size": 32,
+  "n_initial": 256,
+  "scale_range": [
+    0.1,
+    5.0
+  ],
+  "variance_mode": "segment",
+  "barycenter_file": "/scratch/stein.an/vrhmm/Mediod_Profiles/first_rank_medoid_profiles.json",
+  "signal_file": "./data/denoise_segment_dynp_parallel_34_BkP_full_pastor_norm_features_clean_1751_4570_min_size_30_length_iqr_25_75_pretty_25_per_aa.pkl"
+}

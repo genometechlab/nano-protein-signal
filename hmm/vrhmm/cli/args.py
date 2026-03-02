@@ -28,7 +28,7 @@ def add_classification_args(parser: argparse.ArgumentParser) -> None:
         '--classification-mode',
         type=str,
         default='20way',
-        choices=['2way', '4way', 'biological', '20way'],
+        choices=['2way', '3way', '4way', '5way_size', 'biological', '20way'],
         help='Classification mode'
     )
 
@@ -54,7 +54,7 @@ def add_model_args(parser: argparse.ArgumentParser) -> None:
     group.add_argument(
         '--model-aa',
         type=str,
-        default='D',
+        default=None,
         help='Reference amino acid model'
     )
 
@@ -96,12 +96,29 @@ def add_data_args(parser: argparse.ArgumentParser) -> None:
         default=None,
         help='Path to barycenter JSON file'
     )
+    
+    group.add_argument(
+        '--profile-file',
+        type=Path,
+        default=None,
+        help='Path to pre-computed profile CSV with columns: amino_acid, state, mean, std'
+    )
 
     group.add_argument(
         '--use-pickle',
         action='store_true',
         help='Use pre-segmented pickle data'
     )
+    
+    group.add_argument(
+        '--variance-scale-file',
+        type=Path,
+        default=None,
+        help='CSV file with per-AA variance scales (columns: amino_acid, variance_scale)'
+    )
+
+    group.add_argument('--transition-file', type=str, default=None,
+                    help='Path to JSON file with custom transition probabilities')
 
 def add_output_args(parser: argparse.ArgumentParser) -> None:
     

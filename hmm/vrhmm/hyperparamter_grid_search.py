@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 hyperparameter_grid_search.py
-Grid search for optimal HMM transition probabilities using segment-based variance.
+Grid search for optimal HMM transition probabilities using segment-based or profile-based variance.
 """
 
 import sys
@@ -147,12 +147,15 @@ def _is_presegmented(data) -> bool:
 
 
 def build_classifier_with_transitions(
-        barycenters: Dict[str, List[np.ndarray]],
-        variance_collectors: Dict[str, SegmentVarianceCollector],
+        barycenters: Optional[Dict[str, List[np.ndarray]]],
+        profile_stats: Optional[Dict[str, Dict[int, Tuple[float, float]]]],
+        variance_mode: str,
+        variance_collectors: Optional[Dict[str, SegmentVarianceCollector]],
+        variance_scales: Optional[Dict[str, float]],
         transition_params: Dict[str, float],
         base_config: Dict[str, Any]
 ) -> HMMClassifier:
-    """Build HMM classifier using segment variances and specified transitions."""
+    """Build HMM classifier using specified variance mode and transitions."""
 
     # Update config with new transitions
     config = base_config.copy()
@@ -161,27 +164,82 @@ def build_classifier_with_transitions(
 
     classifier = HMMClassifier(classification_mode='20way', use_length_normalization=False)
 
-    # Use segment variance mode
-    constructor = HMMConstructor(
-        config=config['hmm'],
-        variance_mode='segment',
-        variance_scale=1.0  # Not used in segment mode
-    )
+    # If using profile stats directly
+    if profile_stats is not None:
+        constructor = HMMConstructor(
+            config=config['hmm'],
+            variance_mode='profile',
+            variance_scale=1.0  # Will be overridden per-AA
+        )
+        
+        for aa, profile_dict in profile_stats.items():
+            try:
+                # Set variance scale for this AA
+                if variance_scales:
+                    constructor.variance_scale = variance_scales.get(aa, 1.0)
+                else:
+                    constructor.variance_scale = 1.0
+                
+                # Build from profile stats - returns (model, profile_stats) tuple
+                result = constructor.build_hmm_from_profile_stats(
+                    amino_acid=aa,
+                    profile_stats=profile_dict,
+                    model_name=f"HMM_{aa}_from_profile"
+                )
+                
+                # Unpack the tuple
+                if isinstance(result, tuple):
+                    model, _ = result
+                else:
+                    model = result
+                
+                classifier.add_model(aa, model)
+            except Exception as e:
+                logger.warning(f"Error building model for {aa}: {e}")
+        
+        return classifier
+    
+    # Otherwise use barycenters
+    if variance_mode == 'segment':
+        constructor = HMMConstructor(
+            config=config['hmm'],
+            variance_mode='segment',
+            variance_scale=1.0
+        )
+    else:  # profile mode
+        constructor = HMMConstructor(
+            config=config['hmm'],
+            variance_mode='profile',
+            variance_scale=1.0  # Will be overridden per-AA
+        )
 
     for aa, profile_arrays in barycenters.items():
         try:
-            # Get empirical variances for this amino acid
-            segment_variances = None
-            if aa in variance_collectors:
-                segment_variances = variance_collectors[aa].get_average_variances()
+            if variance_mode == 'segment':
+                # Get empirical variances for this amino acid
+                segment_variances = None
+                if aa in variance_collectors:
+                    segment_variances = variance_collectors[aa].get_average_variances()
 
-            model = constructor.build_hmm_from_arrays(
-                amino_acid=aa,
-                profile_arrays=profile_arrays,
-                segment_variances=segment_variances,
-                model_name=f"HMM_{aa}_segment_var",
-                expected_length=35
-            )
+                model = constructor.build_hmm_from_arrays(
+                    amino_acid=aa,
+                    profile_arrays=profile_arrays,
+                    segment_variances=segment_variances,
+                    model_name=f"HMM_{aa}_segment_var",
+                    expected_length=35
+                )
+            else:  # profile mode
+                # Set the variance scale for this AA
+                constructor.variance_scale = variance_scales.get(aa, 1.0)
+
+                model = constructor.build_hmm_from_arrays(
+                    amino_acid=aa,
+                    profile_arrays=profile_arrays,
+                    segment_variances=None,
+                    model_name=f"HMM_{aa}_profile_var",
+                    expected_length=35
+                )
+
             classifier.add_model(aa, model)
 
         except Exception as e:
@@ -195,8 +253,11 @@ def evaluate_transitions(
         param_names: List[str],
         base_config: Dict[str, Any],
         test_data: List[Dict[str, Any]],
-        barycenters: Dict[str, List[np.ndarray]],
-        variance_collectors: Dict[str, SegmentVarianceCollector]
+        barycenters: Optional[Dict[str, List[np.ndarray]]],
+        profile_stats: Optional[Dict[str, Dict[int, Tuple[float, float]]]],
+        variance_mode: str,
+        variance_collectors: Optional[Dict[str, SegmentVarianceCollector]],
+        variance_scales: Optional[Dict[str, float]]
 ) -> Dict[str, Any]:
     """Evaluate a single transition parameter configuration."""
 
@@ -207,9 +268,15 @@ def evaluate_transitions(
 
     trans_params = normalize_transitions(trans_params)
 
-    # Build classifier with segment variances
+    # Build classifier
     classifier = build_classifier_with_transitions(
-        barycenters, variance_collectors, trans_params, base_config
+        barycenters,
+        profile_stats,
+        variance_mode,
+        variance_collectors,
+        variance_scales,
+        trans_params,
+        base_config
     )
 
     # Evaluate
@@ -257,11 +324,12 @@ def evaluate_transitions(
 
 
 class TransitionGridSearch:
-    """Grid search for optimal HMM transition probabilities using segment variance."""
+    """Grid search for optimal HMM transition probabilities using segment or profile variance."""
 
     def __init__(
             self,
-            barycenters: Dict[str, List[np.ndarray]],
+            barycenters: Optional[Dict[str, List[np.ndarray]]],
+            profile_stats: Optional[Dict[str, Dict[int, Tuple[float, float]]]],
             signal_data: List[Dict[str, Any]],
             segmenter: Segmenter,
             base_config: Dict[str, Any],
@@ -270,9 +338,11 @@ class TransitionGridSearch:
             use_pickle: bool = False,
             n_folds: int = 5,
             n_processes: int = None,
-            max_per_aa: int = None
+            max_per_aa: int = None,
+            variance_scale_file: Optional[str] = None
     ):
         self.barycenters = barycenters
+        self.profile_stats = profile_stats
         self.signal_data = signal_data
         self.segmenter = segmenter
         self.base_config = base_config
@@ -281,39 +351,99 @@ class TransitionGridSearch:
         self.seg_mode = seg_mode
         self.use_pickle = use_pickle
         self.n_folds = n_folds
-        self.n_processes = n_processes or max(1, mp.cpu_count() - 1)
+        self.n_processes = n_processes or max(1, 48)
         self.max_per_aa = max_per_aa
 
-        # Collect segment variances ONCE
-        logger.info("=" * 60)
-        logger.info("COLLECTING SEGMENT VARIANCES")
-        logger.info("=" * 60)
-        self.variance_collectors = collect_segment_variances(
-            signal_data=signal_data,
-            amino_acids=list(barycenters.keys()),
-            segmenter=segmenter,
-            use_pickle=use_pickle,
-            max_signals_per_aa=10
-        )
+        # Determine amino acids
+        if profile_stats:
+            amino_acids = list(profile_stats.keys())
+        elif barycenters:
+            amino_acids = list(barycenters.keys())
+        else:
+            raise ValueError("Must provide either barycenters or profile_stats")
+
+        # Determine variance mode and load appropriate data
+        if profile_stats:
+            # Profile CSV mode - must use profile variance
+            self.variance_mode = 'profile'
+            self.variance_scales = None
+            self.variance_collectors = None
+            
+            if variance_scale_file:
+                logger.info("=" * 60)
+                logger.info("LOADING VARIANCE SCALES (Profile Mode)")
+                logger.info("=" * 60)
+                
+                # Handle both JSON and CSV formats
+                if variance_scale_file.endswith('.json'):
+                    with open(variance_scale_file, 'r') as f:
+                        self.variance_scales = json.load(f)
+                else:
+                    # CSV format: amino_acid,variance_scale
+                    import pandas as pd
+                    df = pd.read_csv(variance_scale_file)
+                    self.variance_scales = dict(zip(df['amino_acid'], df['variance_scale']))
+                
+                logger.info(f"Loaded variance scales for {len(self.variance_scales)} amino acids")
+                for aa in sorted(self.variance_scales.keys()):
+                    logger.info(f"  {aa}: {self.variance_scales[aa]:.6f}")
+            else:
+                logger.info("No variance scales provided - using 1.0 for all amino acids")
+        else:
+            # Barycenter mode - can use either segment or profile variance
+            self.variance_mode = 'profile' if variance_scale_file else 'segment'
+            self.variance_scales = None
+            self.variance_collectors = None
+
+            if variance_scale_file:
+                # Profile variance mode
+                logger.info("=" * 60)
+                logger.info("LOADING VARIANCE SCALES (Profile Mode)")
+                logger.info("=" * 60)
+                
+                if variance_scale_file.endswith('.json'):
+                    with open(variance_scale_file, 'r') as f:
+                        self.variance_scales = json.load(f)
+                else:
+                    import pandas as pd
+                    df = pd.read_csv(variance_scale_file)
+                    self.variance_scales = dict(zip(df['amino_acid'], df['variance_scale']))
+                
+                logger.info(f"Loaded variance scales for {len(self.variance_scales)} amino acids")
+                for aa in sorted(self.variance_scales.keys()):
+                    logger.info(f"  {aa}: {self.variance_scales[aa]:.6f}")
+            else:
+                # Segment variance mode - collect variances ONCE
+                logger.info("=" * 60)
+                logger.info("COLLECTING SEGMENT VARIANCES")
+                logger.info("=" * 60)
+                self.variance_collectors = collect_segment_variances(
+                    signal_data=signal_data,
+                    amino_acids=amino_acids,
+                    segmenter=segmenter,
+                    use_pickle=use_pickle,
+                    max_signals_per_aa=10
+                )
 
         # Prepare test data
         logger.info("=" * 60)
         logger.info("PREPARING TEST DATA")
         logger.info("=" * 60)
-        self.all_test_data = self._prepare_test_data()
+        self.all_test_data = self._prepare_test_data(amino_acids)
         self.folds = self._create_stratified_folds()
 
         logger.info(f"Initialized with {len(self.all_test_data)} test samples, {n_folds} folds")
         logger.info(f"Using {self.n_processes} parallel processes")
+        logger.info(f"Variance mode: {self.variance_mode}")
 
-    def _prepare_test_data(self) -> List[Dict[str, Any]]:
+    def _prepare_test_data(self, amino_acids: List[str]) -> List[Dict[str, Any]]:
         """Prepare and normalize test data."""
         test_data = []
         aa_counts = defaultdict(int)
 
         for record in self.signal_data:
             aa = record.get('aa', 'unknown')
-            if aa not in self.barycenters:
+            if aa not in amino_acids:
                 continue
 
             # Apply max_per_aa limit if specified
@@ -365,7 +495,7 @@ class TransitionGridSearch:
         return test_data
 
     def _create_stratified_folds(self) -> List[List[int]]:
-        
+        """Create stratified folds for cross-validation."""
         aa_indices = defaultdict(list)
         for i, sample in enumerate(self.all_test_data):
             aa_indices[sample['true_aa']].append(i)
@@ -404,10 +534,13 @@ class TransitionGridSearch:
             test_indices = set(self.folds[fold_idx])
             test_data = [self.all_test_data[i] for i in test_indices]
 
-            # Build classifier with segment variances
+            # Build classifier
             classifier = build_classifier_with_transitions(
                 self.barycenters,
+                self.profile_stats,
+                self.variance_mode,
                 self.variance_collectors,
+                self.variance_scales,
                 trans_params,
                 self.base_config
             )
@@ -441,7 +574,7 @@ class TransitionGridSearch:
             self,
             transition_grids: Dict[str, List[float]]
     ) -> pd.DataFrame:
-        
+        """Run grid search over transition probabilities."""
 
         param_names = list(transition_grids.keys())
         param_values = list(transition_grids.values())
@@ -455,7 +588,7 @@ class TransitionGridSearch:
             logger.info(f"  {name}: {values}")
         logger.info(f"Total combinations: {len(all_combos)}")
         logger.info(f"Using {self.n_folds}-fold cross-validation")
-        logger.info("Variance mode: segment (empirical from signals)")
+        logger.info(f"Variance mode: {self.variance_mode}")
 
         # Create partial function for parallel evaluation
         eval_func = partial(
@@ -486,7 +619,7 @@ class TransitionGridSearch:
             'cv_mean_accuracy': best_result['cv_mean_accuracy'],
             'cv_std_accuracy': best_result['cv_std_accuracy'],
             'transition_params': best_result['transition_params'],
-            'variance_mode': 'segment',
+            'variance_mode': self.variance_mode,
             'n_folds': self.n_folds,
             'n_test_samples': len(self.all_test_data),
             'timestamp': timestamp
@@ -513,7 +646,7 @@ class TransitionGridSearch:
         print("GRID SEARCH COMPLETE")
         print("=" * 70)
 
-        print(f"\nVariance Mode: segment (empirical from signals)")
+        print(f"\nVariance Mode: {self.variance_mode}")
         print(f"Cross-validation: {self.n_folds} folds")
         print(f"Test samples: {len(self.all_test_data)}")
 
@@ -540,7 +673,7 @@ class TransitionGridSearch:
 
 
 def create_transition_search_config() -> Dict[str, List[float]]:
-    
+    """Create default comprehensive search grid."""
     return {
         # Match state transitions (most important)
         'match_self_loop': [0.01, 0.02, 0.05, 0.10],
@@ -553,7 +686,7 @@ def create_transition_search_config() -> Dict[str, List[float]]:
 
 
 def create_quick_search_config() -> Dict[str, List[float]]:
-    
+    """Create reduced search grid for quick testing."""
     return {
         'match_self_loop': [0.01, 0.05],
         'forward': [0.60, 0.70],
@@ -563,7 +696,7 @@ def create_quick_search_config() -> Dict[str, List[float]]:
 
 
 def create_fine_search_config(base_params: Dict[str, float]) -> Dict[str, List[float]]:
-    
+    """Create fine-tuning grid around existing parameters."""
     grid = {}
 
     for key, value in base_params.items():
@@ -579,12 +712,43 @@ def create_fine_search_config(base_params: Dict[str, float]) -> Dict[str, List[f
     return grid
 
 
+def load_profile_csv(profile_file: str) -> Dict[str, Dict[int, Tuple[float, float]]]:
+    """Load pre-computed profile CSV with columns: amino_acid, state, mean, std"""
+    import pandas as pd
+    
+    df = pd.read_csv(profile_file)
+    
+    # Handle different possible column names
+    if 'amino_acid' in df.columns:
+        aa_col = 'amino_acid'
+    elif 'aa' in df.columns:
+        aa_col = 'aa'
+    else:
+        raise ValueError(f"Profile CSV must have 'amino_acid' or 'aa' column. Found: {df.columns.tolist()}")
+    
+    profiles = {}
+    for aa in df[aa_col].unique():
+        aa_data = df[df[aa_col] == aa].sort_values('state')
+        profiles[aa] = {
+            int(row['state']): (float(row['mean']), float(row['std']))
+            for _, row in aa_data.iterrows()
+        }
+    
+    return profiles
+
+
 def main():
     parser = argparse.ArgumentParser(
-        description='HMM Transition Probability Grid Search (Segment Variance Mode)'
+        description='HMM Transition Probability Grid Search (Segment or Profile Variance Mode)'
     )
-    parser.add_argument('--barycenter-file', type=str, required=True,
-                        help='Path to barycenter JSON file')
+    
+    # Profile input (mutually exclusive with barycenter-file)
+    profile_group = parser.add_mutually_exclusive_group(required=True)
+    profile_group.add_argument('--barycenter-file', type=str,
+                               help='Path to barycenter JSON/pickle file')
+    profile_group.add_argument('--profile-file', type=str,
+                               help='Path to pre-computed profile CSV (amino_acid, state, mean, std)')
+    
     parser.add_argument('--signal-file', type=str, required=True,
                         help='Path to signal data file (CSV or pickle)')
     parser.add_argument('--output-dir', type=str, default='./grid_search_results',
@@ -600,6 +764,10 @@ def main():
                         help='Number of parallel processes')
     parser.add_argument('--max-per-aa', type=int, default=None,
                         help='Maximum signals per amino acid')
+    parser.add_argument('--variance-scale-file', type=str, default=None,
+                        help='Path to variance scale JSON/CSV file (for profile variance mode)')
+    parser.add_argument('--metadata-file', type=str, default=None,
+                        help='Path to metadata JSON file for filtering signals (format: {"traces": [...]})')
     parser.add_argument('--quick', action='store_true',
                         help='Run quick test with reduced grid')
     parser.add_argument('--fine-tune', type=str, default=None,
@@ -607,13 +775,24 @@ def main():
 
     args = parser.parse_args()
 
-    # Load barycenters
-    logger.info("Loading barycenters...")
-    loader = DataLoader(args.barycenter_file, 'json')
-    data = loader.load_data()
+    # Load profiles
     valid_aas = set('ACDEFGHIKLMNPQRSTVWY')
-    barycenters = {k: v for k, v in data.items() if k in valid_aas}
-    logger.info(f"Loaded {len(barycenters)} amino acid profiles: {sorted(barycenters.keys())}")
+    barycenters = None
+    profile_stats = None
+    
+    if args.profile_file:
+        logger.info("Loading pre-computed profiles from CSV...")
+        profile_stats = load_profile_csv(args.profile_file)
+        logger.info(f"Loaded {len(profile_stats)} amino acid profiles from CSV: {sorted(profile_stats.keys())}")
+        # Profile CSV mode requires variance scales
+        if not args.variance_scale_file:
+            logger.warning("Using profile CSV without variance scales - will use variance_scale=1.0 for all")
+    else:
+        logger.info("Loading barycenters...")
+        loader = DataLoader(args.barycenter_file, 'json' if args.barycenter_file.endswith('.json') else 'pickle')
+        data = loader.load_data()
+        barycenters = {k: v for k, v in data.items() if k in valid_aas}
+        logger.info(f"Loaded {len(barycenters)} amino acid barycenters: {sorted(barycenters.keys())}")
 
     # Load signals
     logger.info("Loading signals...")
@@ -621,7 +800,19 @@ def main():
     data_type = 'pickle' if signal_path.suffix in ['.pkl', '.pickle'] else 'csv'
     use_pickle = args.use_pickle or data_type == 'pickle'
 
-    loader = DataLoader(str(signal_path), data_type, signal_dict=True)
+    # Load metadata if provided
+    metadata = None
+    if args.metadata_file:
+        logger.info(f"Loading metadata from {args.metadata_file}...")
+        with open(args.metadata_file, 'r') as f:
+            metadata = json.load(f)
+        
+        if 'traces' in metadata:
+            logger.info(f"Metadata specifies {len(metadata['traces'])} traces to analyze")
+        else:
+            logger.warning("Metadata file missing 'traces' key - expected format: {'traces': [...]}")
+
+    loader = DataLoader(str(signal_path), data_type, signal_dict=True, metadata=metadata)
     signal_data = loader.load_data()
     logger.info(f"Loaded {len(signal_data)} signals")
 
@@ -630,6 +821,7 @@ def main():
 
     search = TransitionGridSearch(
         barycenters=barycenters,
+        profile_stats=profile_stats,
         signal_data=signal_data,
         segmenter=segmenter,
         base_config=CONFIG,
@@ -638,7 +830,8 @@ def main():
         use_pickle=use_pickle,
         n_folds=args.n_folds,
         n_processes=args.n_processes,
-        max_per_aa=args.max_per_aa
+        max_per_aa=args.max_per_aa,
+        variance_scale_file=args.variance_scale_file
     )
 
     # Select search configuration

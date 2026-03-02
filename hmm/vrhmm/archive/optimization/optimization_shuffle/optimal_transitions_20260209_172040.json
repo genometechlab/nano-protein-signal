@@ -1,0 +1,8 @@
+{
+  "match_self_loop": 0.012,
+  "forward": 0.679,
+  "to_skip": 0.123,
+  "to_slip": 0.086,
+  "to_insert": 0.062,
+  "to_end": 0.037
+}

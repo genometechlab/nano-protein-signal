@@ -6,13 +6,6 @@ from typing import Dict, List, Optional, Any, Union
 import numpy as np
 import numpy.typing as npt
 
-from vrhmm.segmentation.algorithms import (
-    run_dynamic_segmentation,
-    run_pelt_segmentation,
-    run_set_window_segmentation
-)
-from vrhmm.processing.filters import apply_bessel_filter
-
 logger = logging.getLogger(__name__)
 
 class SegmentVarianceCollector:

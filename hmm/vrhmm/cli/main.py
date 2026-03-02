@@ -13,6 +13,7 @@ from vrhmm.cli.args import create_parser
 from vrhmm.cli.runner import PipelineRunner
 from vrhmm.config import CONFIG
 from vrhmm.utils.types import ClassificationResult
+from vrhmm.visualization.signal_plots import configure_logging
 
 def setup_logging(debug: bool = False) -> None:
     """Configure logging for the application."""
@@ -24,6 +25,7 @@ def setup_logging(debug: bool = False) -> None:
 
 def main(args: Optional[List[str]] = None) -> int:
     """Main entry point for vrhmm pipeline."""
+    configure_logging()
     parser = create_parser()
     parsed_args = parser.parse_args(args)
 
