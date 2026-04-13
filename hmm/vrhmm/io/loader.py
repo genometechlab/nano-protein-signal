@@ -13,19 +13,19 @@ import orjson
 
 logger = logging.getLogger(__name__)
 
+
 class DataLoader:
     """Data loader for various file formats."""
 
     def __init__(
-            self,
-            data_source: str,
-            data_type: str,
-            signal_dict: bool = False,
-            metadata: Optional[Dict[str, Any]] = None,
-            min_signal_length: Optional[int] = None,
-            max_signal_length: Optional[int] = None
+        self,
+        data_source: str,
+        data_type: str,
+        signal_dict: bool = False,
+        metadata: Optional[Dict[str, Any]] = None,
+        min_signal_length: Optional[int] = None,
+        max_signal_length: Optional[int] = None
     ) -> None:
-        
         self.data_source = data_source
         self.data_type = data_type
         self.signal_dict = signal_dict
@@ -33,19 +33,12 @@ class DataLoader:
         self.min_signal_length = min_signal_length
         self.max_signal_length = max_signal_length
 
-        logger.info(f"DataLoader.__init__ called with metadata={metadata is not None}")
-        if metadata:
-            logger.info(f"Metadata keys: {metadata.keys()}")
-
         self.metadata_traces = None
         if metadata and 'traces' in metadata:
             self.metadata_traces = metadata['traces']
-            logger.info(f"Set metadata_traces with {len(self.metadata_traces)} traces")
-        else:
-            logger.info("metadata_traces NOT set - metadata is None or missing 'traces' key")
+            logger.info(f"Metadata specifies {len(self.metadata_traces)} traces")
 
     def load_data(self) -> Optional[Union[pd.DataFrame, List[Dict[str, Any]], Dict[str, Any]]]:
-        
         if self.data_type == 'csv':
             return self._load_csv()
         elif self.data_type == 'json':
@@ -56,18 +49,16 @@ class DataLoader:
             raise ValueError(f"Unsupported data type: {self.data_type}")
 
     def _load_csv(self) -> Optional[Union[pd.DataFrame, List[Dict[str, Any]]]]:
-        
         try:
             data = pd.read_csv(self.data_source)
             if self.signal_dict:
-                return self._convert_to_signal_dict(data, is_pickle=False)
+                return self._convert_to_signal_dict(data, apply_length_filter=True)
             return data
         except Exception as e:
             logger.error(f"Error loading CSV file: {e}")
             return None
 
     def _load_json(self) -> Optional[Dict[str, Any]]:
-        
         try:
             with open(self.data_source, 'rb') as file:
                 data = orjson.loads(file.read())
@@ -77,7 +68,6 @@ class DataLoader:
             return None
 
     def _load_pickle(self) -> Optional[Union[pd.DataFrame, List[Dict[str, Any]]]]:
-        
         try:
             with open(self.data_source, 'rb') as f:
                 data = pickle.load(f)
@@ -92,8 +82,7 @@ class DataLoader:
                 raise ValueError(f"Unexpected pickle data type: {type(data)}")
 
             if self.signal_dict:
-                # Pass is_pickle=True to skip length filtering
-                return self._convert_to_signal_dict(dataframe, is_pickle=True)
+                return self._convert_to_signal_dict(dataframe, apply_length_filter=False)
 
             return dataframe
         except Exception as e:
@@ -101,30 +90,21 @@ class DataLoader:
             return None
 
     def _convert_to_signal_dict(
-            self,
-            df: pd.DataFrame,
-            is_pickle: bool = False
+        self,
+        df: pd.DataFrame,
+        apply_length_filter: bool = True
     ) -> List[Dict[str, Any]]:
         """Convert dataframe to signal dictionary format."""
-        logger.info(f"_convert_to_signal_dict called with {len(df)} rows")
-        logger.info(f"self.metadata_traces is: {self.metadata_traces is not None}")
-
         aa_field = self._find_aa_field(df)
         segment_field = self._find_segment_field(df)
 
         if self.metadata_traces:
-            logger.info(f"Applying metadata filtering for {len(self.metadata_traces)} traces")
             df = self._filter_by_metadata(df)
-            logger.info(f"After filtering: {len(df)} rows remain")
-        else:
-            logger.info("No metadata filtering - metadata_traces is None or empty")
+            logger.info(f"After metadata filtering: {len(df)} rows remain")
 
-        # Skip length filtering for pickle files (they contain pre-segmented data)
-        if not is_pickle and (self.min_signal_length or self.max_signal_length):
+        if apply_length_filter and (self.min_signal_length or self.max_signal_length):
             df = self._filter_by_length(df, segment_field)
             logger.debug(f"After length filter: {len(df)} records")
-        elif is_pickle and (self.min_signal_length or self.max_signal_length):
-            logger.debug("Skipping length filter for pre-segmented pickle data")
 
         records = []
         for _, row in df.iterrows():
@@ -159,113 +139,110 @@ class DataLoader:
         return None
 
     def _filter_by_metadata(self, df: pd.DataFrame) -> pd.DataFrame:
-        """Filter dataframe by metadata traces using full_metadata, channel, variable_region, and df_index."""
-        logger.info(f"DataFrame shape before filtering: {df.shape}")
-    
+        """Filter dataframe by metadata traces."""
+        required_cols = {'channel', 'variable_region', 'metadata'}
+        missing = required_cols - set(df.columns)
+        if missing:
+            logger.warning(f"Cannot apply metadata filter, missing columns: {missing}")
+            return df
+
         filtered_dfs = []
-        matched_count = 0
-        
+
         for trace in self.metadata_traces:
             channel = float(trace['Channel'])
             amino_acid = trace['AA']
-            
-            # Build filter conditions
+
             conditions = (
                 (df['channel'] == channel) &
                 (df['variable_region'] == amino_acid)
             )
-            
-            # Use full_metadata for exact match if available
+
             if 'full_metadata' in trace and trace['full_metadata']:
-                full_meta = trace['full_metadata']
-                conditions = conditions & (df['metadata'] == full_meta)
+                conditions = conditions & (df['metadata'] == trace['full_metadata'])
             else:
-                # Fallback to startswith for backwards compatibility
                 peptide_group = trace['Run']
                 conditions = conditions & (df['metadata'].str.startswith(peptide_group))
-            
-            # Use df_index for exact match if available
+
             if 'df_index' in trace and trace['df_index'] is not None:
-                df_index = str(trace['df_index'])
-                conditions = conditions & (df['df_index'].astype(str) == df_index)
-            
+                conditions = conditions & (df['df_index'].astype(str) == str(trace['df_index']))
+
             trace_data = df[conditions]
-    
-            if not trace_data.empty:
-                # Take only the first match to avoid duplicates
-                if len(trace_data) > 1:
-                    logger.warning(f"  ⚠ Multiple matches ({len(trace_data)}) for trace, taking first")
-                    trace_data = trace_data.head(1)
-                
-                matched_count += len(trace_data)
-                logger.debug(f"  ✓ Found match for {trace.get('full_metadata', trace['Run'])} Ch{channel} AA={amino_acid}")
-                filtered_dfs.append(trace_data)
-            else:
-                logger.warning(f"  ✗ No match for {trace.get('full_metadata', trace['Run'])} Ch{channel} AA={amino_acid} idx={trace.get('df_index')}")
-    
-        if filtered_dfs:
-            result = pd.concat(filtered_dfs, ignore_index=True)
-            # Final deduplication just in case
-            result = result.drop_duplicates(subset=['metadata', 'channel', 'variable_region', 'df_index'])
-            logger.info(f"✓ Metadata filtering: {len(result)} unique traces matched from {len(self.metadata_traces)} specified")
-            return result
-    
-        logger.warning("✗ No traces matched metadata filters!")
-        return pd.DataFrame()
+
+            if trace_data.empty:
+                trace_id = trace.get('full_metadata', trace['Run'])
+                logger.warning(f"No match for {trace_id} Ch{channel} AA={amino_acid} idx={trace.get('df_index')}")
+                continue
+
+            if len(trace_data) > 1:
+                logger.warning(f"Multiple matches ({len(trace_data)}) for trace, taking first")
+                trace_data = trace_data.head(1)
+
+            filtered_dfs.append(trace_data)
+
+        if not filtered_dfs:
+            logger.warning("No traces matched metadata filters")
+            return pd.DataFrame()
+
+        result = pd.concat(filtered_dfs, ignore_index=True)
+        result = result.drop_duplicates(subset=['metadata', 'channel', 'variable_region', 'df_index'])
+        logger.info(f"Metadata filtering: {len(result)} unique traces matched from {len(self.metadata_traces)} specified")
+        return result
 
     def _filter_by_length(self, df: pd.DataFrame, segment_field: str) -> pd.DataFrame:
         """Filter dataframe by signal length."""
-        if segment_field:
-            df['signal_length'] = df[segment_field].apply(self._get_signal_length)
+        if not segment_field:
+            return df
 
-            if self.min_signal_length:
-                df = df[df['signal_length'] >= self.min_signal_length]
-            if self.max_signal_length:
-                df = df[df['signal_length'] <= self.max_signal_length]
+        df = df.copy()
+        df['_signal_length'] = df[segment_field].apply(_get_signal_length)
 
-            df = df.drop('signal_length', axis=1)
+        if self.min_signal_length:
+            df = df[df['_signal_length'] >= self.min_signal_length]
+        if self.max_signal_length:
+            df = df[df['_signal_length'] <= self.max_signal_length]
 
-        return df
+        return df.drop('_signal_length', axis=1)
 
-    @staticmethod
-    def _get_signal_length(signal_value: Any) -> int:
-        
-        try:
-            if isinstance(signal_value, str):
-                try:
-                    parsed = ast.literal_eval(signal_value)
-                except:
-                    try:
-                        parsed = json.loads(signal_value)
-                    except:
-                        parsed = signal_value.split(',')
-                return len(parsed)
-            elif isinstance(signal_value, (list, np.ndarray)):
-                return len(signal_value)
-            else:
-                return 0
-        except:
-            return 0
+
+def _get_signal_length(signal_value: Any) -> int:
+    """Get the length of a signal value in various storage formats."""
+    try:
+        if isinstance(signal_value, (list, np.ndarray)):
+            return len(signal_value)
+        if isinstance(signal_value, str):
+            return len(_parse_string_signal(signal_value))
+        return 0
+    except Exception:
+        return 0
+
+
+def _parse_string_signal(value: str) -> list:
+    """Parse a string-encoded signal (Python literal, JSON, or CSV)."""
+    try:
+        return ast.literal_eval(value)
+    except (ValueError, SyntaxError):
+        pass
+
+    try:
+        return json.loads(value)
+    except (json.JSONDecodeError, ValueError):
+        pass
+
+    return value.split(',')
+
 
 def parse_signal_data(signal_value: Any) -> np.ndarray:
     """Parse signal data from various formats to numpy array."""
-    if isinstance(signal_value, str):
-        try:
-            parsed = ast.literal_eval(signal_value)
-            return np.array(parsed, dtype=np.float64)
-        except:
-            try:
-                parsed = json.loads(signal_value)
-                return np.array(parsed, dtype=np.float64)
-            except:
-                parsed = [float(x.strip()) for x in signal_value.split(',')]
-                return np.array(parsed, dtype=np.float64)
-    elif isinstance(signal_value, list):
-        return np.array(signal_value, dtype=np.float64)
-    elif isinstance(signal_value, np.ndarray):
+    if isinstance(signal_value, np.ndarray):
         return signal_value.astype(np.float64)
-    else:
-        raise ValueError(f"Cannot parse signal data of type {type(signal_value)}")
+    if isinstance(signal_value, list):
+        return np.array(signal_value, dtype=np.float64)
+    if isinstance(signal_value, str):
+        parsed = _parse_string_signal(signal_value)
+        return np.array([float(x) if isinstance(x, str) else x for x in parsed],
+                        dtype=np.float64)
+    raise ValueError(f"Cannot parse signal data of type {type(signal_value)}")
+
 
 def process_pre_segmented_data(raw_segments: List[Any]) -> Dict[str, Any]:
     """Convert pre-segmented data to the format expected by the HMM."""

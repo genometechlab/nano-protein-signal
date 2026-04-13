@@ -1,11 +1,11 @@
-"""Argument parser configuration for vrhmm CLI."""
+"""Argument parser for the vrhmm CLI."""
 
 import argparse
 from pathlib import Path
-from typing import Optional
+
 
 def create_parser() -> argparse.ArgumentParser:
-    
+    """Build and return the top-level argument parser."""
     parser = argparse.ArgumentParser(
         description='vrhmm: Variable Rate HMM for Amino Acid Classification',
         formatter_class=argparse.ArgumentDefaultsHelpFormatter
@@ -20,8 +20,8 @@ def create_parser() -> argparse.ArgumentParser:
 
     return parser
 
+
 def add_classification_args(parser: argparse.ArgumentParser) -> None:
-    
     group = parser.add_argument_group('Classification Configuration')
 
     group.add_argument(
@@ -47,8 +47,8 @@ def add_classification_args(parser: argparse.ArgumentParser) -> None:
         help='Variance scaling factor'
     )
 
+
 def add_model_args(parser: argparse.ArgumentParser) -> None:
-    
     group = parser.add_argument_group('Model Configuration')
 
     group.add_argument(
@@ -65,8 +65,8 @@ def add_model_args(parser: argparse.ArgumentParser) -> None:
         help='Amino acid data to test'
     )
 
+
 def add_data_args(parser: argparse.ArgumentParser) -> None:
-    
     group = parser.add_argument_group('Data Sources')
 
     group.add_argument(
@@ -96,7 +96,7 @@ def add_data_args(parser: argparse.ArgumentParser) -> None:
         default=None,
         help='Path to barycenter JSON file'
     )
-    
+
     group.add_argument(
         '--profile-file',
         type=Path,
@@ -109,7 +109,7 @@ def add_data_args(parser: argparse.ArgumentParser) -> None:
         action='store_true',
         help='Use pre-segmented pickle data'
     )
-    
+
     group.add_argument(
         '--variance-scale-file',
         type=Path,
@@ -117,11 +117,15 @@ def add_data_args(parser: argparse.ArgumentParser) -> None:
         help='CSV file with per-AA variance scales (columns: amino_acid, variance_scale)'
     )
 
-    group.add_argument('--transition-file', type=str, default=None,
-                    help='Path to JSON file with custom transition probabilities')
+    group.add_argument(
+        '--transition-file',
+        type=str,
+        default=None,
+        help='Path to JSON file with custom transition probabilities'
+    )
+
 
 def add_output_args(parser: argparse.ArgumentParser) -> None:
-    
     group = parser.add_argument_group('Output Configuration')
 
     group.add_argument(
@@ -143,8 +147,8 @@ def add_output_args(parser: argparse.ArgumentParser) -> None:
         help='Save HMM-reorganized segments'
     )
 
+
 def add_processing_args(parser: argparse.ArgumentParser) -> None:
-    
     group = parser.add_argument_group('Signal Processing')
 
     group.add_argument(
@@ -169,8 +173,8 @@ def add_processing_args(parser: argparse.ArgumentParser) -> None:
         help='Maximum signal length'
     )
 
+
 def add_advanced_args(parser: argparse.ArgumentParser) -> None:
-    
     group = parser.add_argument_group('Advanced Options')
 
     group.add_argument(

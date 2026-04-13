@@ -3,12 +3,13 @@
 import ast
 import json
 import logging
-from typing import Dict, Any, List, Union, Optional
+from typing import Dict, Any, List
 
 import numpy as np
 import numpy.typing as npt
 
 logger = logging.getLogger(__name__)
+
 
 class SignalProcessor:
 
@@ -16,61 +17,44 @@ class SignalProcessor:
         self.config = config
 
     def process_signal(
-            self,
-            record: Dict[str, Any],
-            segmenter: Any,
-            classifier: Any,
-            seg_mode: str = 'dynp'
+        self,
+        record: Dict[str, Any],
+        segmenter: Any,
+        classifier: Any,
+        seg_mode: str = 'dynp'
     ) -> Dict[str, Any]:
-        # Parse signal
+        """Run the full processing pipeline on a single signal record."""
         raw_data = record['cleaned_segment']
         signal, is_presegmented = self._parse_signal_data(raw_data)
 
-        # Segment if needed
         if is_presegmented:
             segment_results = self._process_presegmented(raw_data)
         else:
             segment_results = segmenter.segment(signal, seg_mode)
 
-        # Normalize
         z_means = self._z_normalize_means(segment_results['means'])
         segment_results['z_normalized_stats'] = {
             str(i): (float(z_means[i]), 0.0)
             for i in range(len(z_means))
         }
 
-        # Z-normalize full signal
         z_signal = self._z_normalize_signal(signal)
 
-        # Classify
         pred_category, log_prob, all_scores = classifier.predict(z_means)
 
-        # Get best amino acid model (not category)
-        # Score against all AA models directly to find best one for Viterbi
-        aa_scores = {}
-        for aa, model in classifier.hmm_models.items():
-            try:
-                aa_scores[aa] = model.log_probability(z_means)
-            except:
-                aa_scores[aa] = float('-inf')
-        
-        best_model_aa = max(aa_scores.keys(), key=lambda k: aa_scores[k])
-        best_model = classifier.hmm_models[best_model_aa]
+        # In 20way mode, pred_category is already the best AA.
+        # For grouped modes, find the best individual AA from model scores.
+        if classifier.classification_mode == '20way':
+            best_model_aa = pred_category
+        else:
+            best_model_aa = max(
+                classifier.hmm_models,
+                key=lambda aa: classifier.hmm_models[aa].log_probability(z_means)
+            )
 
-        state_sequence = []
-        full_path = []
-
-        try:
-            _, path = best_model.viterbi(z_means)
-            if path:
-                for _, state_obj in path:
-                    if state_obj.name and 'start' not in state_obj.name.lower() \
-                            and 'end' not in state_obj.name.lower():
-                        full_path.append(state_obj.name)
-                        if 'Match' in state_obj.name:
-                            state_sequence.append(state_obj.name)
-        except Exception as e:
-            logger.warning(f"Could not get Viterbi path: {e}")
+        state_sequence, full_path = self._extract_viterbi_path(
+            classifier.hmm_models[best_model_aa], z_means
+        )
 
         return {
             'signal': signal,
@@ -87,42 +71,80 @@ class SignalProcessor:
             'best_aa_model': best_model_aa
         }
 
+    def _extract_viterbi_path(
+        self,
+        model: Any,
+        z_means: npt.NDArray[np.float64]
+    ) -> tuple[List[str], List[str]]:
+        """Run Viterbi on the best model and extract state/match sequences."""
+        state_sequence = []
+        full_path = []
+
+        try:
+            _, path = model.viterbi(z_means)
+            if path:
+                for _, state_obj in path:
+                    name = state_obj.name
+                    if not name or 'start' in name.lower() or 'end' in name.lower():
+                        continue
+                    full_path.append(name)
+                    if 'Match' in name:
+                        state_sequence.append(name)
+        except Exception as e:
+            logger.warning(f"Could not get Viterbi path: {e}")
+
+        return state_sequence, full_path
+
     def parse_signal(self, signal_value: Any) -> npt.NDArray[np.float64]:
         signal, _ = self._parse_signal_data(signal_value)
         return signal
 
-    def _parse_signal_data(self, signal_value: Any) -> tuple[npt.NDArray[np.float64], bool]:
-        is_presegmented = False
+    def _parse_signal_data(
+        self,
+        signal_value: Any
+    ) -> tuple[npt.NDArray[np.float64], bool]:
+        """Parse raw signal data into a flat numpy array.
+
+        Returns (signal_array, is_presegmented).
+        """
+        if isinstance(signal_value, np.ndarray):
+            return signal_value.astype(np.float64), False
 
         if isinstance(signal_value, str):
-            try:
-                parsed = ast.literal_eval(signal_value)
-            except:
-                try:
-                    parsed = json.loads(signal_value)
-                except:
-                    parsed = [float(x.strip()) for x in signal_value.split(',')]
-            signal = np.array(parsed, dtype=np.float64)
-        elif isinstance(signal_value, list):
-            if len(signal_value) > 0 and isinstance(signal_value[0], (list, np.ndarray)):
-                is_presegmented = True
-                signal_parts = []
-                for seg in signal_value:
-                    if seg is not None:
-                        seg_array = np.array(seg).flatten()
-                        if len(seg_array) > 0:
-                            signal_parts.append(seg_array)
-                signal = np.concatenate(signal_parts) if signal_parts else np.array([])
-            else:
-                signal = np.array(signal_value, dtype=np.float64)
-        elif isinstance(signal_value, np.ndarray):
-            signal = signal_value.astype(np.float64)
-        else:
-            raise ValueError(f"Cannot parse signal data of type {type(signal_value)}")
+            parsed = self._parse_string_signal(signal_value)
+            return np.array(parsed, dtype=np.float64), False
 
-        return signal, is_presegmented
+        if isinstance(signal_value, list):
+            if len(signal_value) > 0 and isinstance(signal_value[0], (list, np.ndarray)):
+                signal_parts = [
+                    np.array(seg).flatten()
+                    for seg in signal_value
+                    if seg is not None and len(np.array(seg).flatten()) > 0
+                ]
+                signal = np.concatenate(signal_parts) if signal_parts else np.array([])
+                return signal, True
+            else:
+                return np.array(signal_value, dtype=np.float64), False
+
+        raise ValueError(f"Cannot parse signal data of type {type(signal_value)}")
+
+    @staticmethod
+    def _parse_string_signal(value: str) -> list:
+        """Parse a string-encoded signal (Python literal, JSON, or CSV)."""
+        try:
+            return ast.literal_eval(value)
+        except (ValueError, SyntaxError):
+            pass
+
+        try:
+            return json.loads(value)
+        except (json.JSONDecodeError, ValueError):
+            pass
+
+        return [float(x.strip()) for x in value.split(',')]
 
     def _process_presegmented(self, raw_segments: List[Any]) -> Dict[str, Any]:
+        """Convert pre-segmented data to the format expected downstream."""
         means = []
         variances = []
         breakpoints = [0]
@@ -146,16 +168,18 @@ class SignalProcessor:
             'breakpoints': breakpoints
         }
 
-    def _z_normalize_means(self, means: npt.NDArray[np.float64]) -> npt.NDArray[np.float64]:
+    @staticmethod
+    def _z_normalize_means(means: npt.NDArray[np.float64]) -> npt.NDArray[np.float64]:
         mean_val = np.mean(means)
         std_val = np.std(means, ddof=1)
-        if std_val == 0:
+        if std_val < 1e-10:
             return means - mean_val
         return (means - mean_val) / std_val
 
-    def _z_normalize_signal(self, signal: npt.NDArray[np.float64]) -> npt.NDArray[np.float64]:
+    @staticmethod
+    def _z_normalize_signal(signal: npt.NDArray[np.float64]) -> npt.NDArray[np.float64]:
         mean_val = np.mean(signal)
         std_val = np.std(signal)
-        if std_val > 0:
-            return (signal - mean_val) / std_val
-        return signal - mean_val
+        if std_val < 1e-10:
+            return signal - mean_val
+        return (signal - mean_val) / std_val

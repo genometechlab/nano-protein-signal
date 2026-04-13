@@ -5,10 +5,7 @@ from vrhmm.visualization.classification_plots import (
     generate_classification_report,
     plot_confusion_matrix,
     plot_category_performance,
-    save_text_report,
-    plot_triangular_correlation_matrix,
-    plot_pairwise_heatmap_with_dendrograms,
-    create_amino_acid_similarity_network
+    save_text_report
 )
 
 __all__ = [

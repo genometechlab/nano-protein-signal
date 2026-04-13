@@ -24,6 +24,8 @@ from vrhmm.utils.amino_acids import (
 
 logger = logging.getLogger(__name__)
 
+STANDARD_AMINO_ACIDS = 'ACDEFGHIKLMNPQRSTVWY'
+
 
 class PipelineRunner:
     """Manages the complete vrHMM processing pipeline."""
@@ -40,63 +42,51 @@ class PipelineRunner:
         self.writer = ResultWriter(self.output_dir, self.timestamp)
 
         self.is_testing_mode = (
-                hasattr(args, 'test_aa') and
-                hasattr(args, 'model_aa') and
-                args.test_aa is not None and
-                args.model_aa is not None
+            args.test_aa is not None and
+            args.model_aa is not None
         )
 
         self.is_cross_validation = (
-                self.is_testing_mode and
-                args.test_aa != args.model_aa
+            self.is_testing_mode and
+            args.test_aa != args.model_aa
         )
-        
-        # Load custom transitions if provided
+
         self._load_transitions()
 
-    def _load_transitions(self) -> Optional[Dict[str, float]]:
-        """Load custom transition probabilities from file."""
-        if not hasattr(self.args, 'transition_file') or not self.args.transition_file:
-            return None
-        
+    def _load_transitions(self) -> None:
+        """Load custom transition probabilities from file into config."""
+        if not self.args.transition_file:
+            return
+
         trans_path = Path(self.args.transition_file)
         if not trans_path.exists():
             logger.warning(f"Transition file not found: {trans_path}")
-            return None
-        
+            return
+
         with open(trans_path, 'r') as f:
             transitions = json.load(f)
-        
-        # Update config with custom transitions
-        if 'hmm' not in self.config:
-            self.config['hmm'] = {}
-        if 'transitions' not in self.config['hmm']:
-            self.config['hmm']['transitions'] = {}
-        
+
+        self.config.setdefault('hmm', {}).setdefault('transitions', {})
         self.config['hmm']['transitions'].update(transitions)
-        
+
         logger.info(f"Loaded custom transitions from {trans_path.name}")
         for key, value in sorted(transitions.items()):
             logger.info(f"  {key}: {value:.6f}")
-        
-        return transitions
 
     def _load_variance_scales(self) -> Dict[str, float]:
         default_scale = self.args.variance_scale
-        scales = {aa: default_scale for aa in 'ACDEFGHIKLMNPQRSTVWY'}
-        
-        if hasattr(self.args, 'variance_scale_file') and self.args.variance_scale_file:
+        scales = {aa: default_scale for aa in STANDARD_AMINO_ACIDS}
+
+        if self.args.variance_scale_file:
             scale_path = Path(self.args.variance_scale_file)
             if scale_path.exists():
                 df = pd.read_csv(scale_path)
                 for _, row in df.iterrows():
-                    aa = row['amino_acid']
-                    scale = float(row['variance_scale'])
-                    scales[aa] = scale
+                    scales[row['amino_acid']] = float(row['variance_scale'])
                 logger.info(f"Loaded per-AA variance scales from {scale_path.name}")
             else:
                 logger.warning(f"Variance scale file not found: {scale_path}")
-        
+
         return scales
 
     def run(self) -> None:
@@ -110,12 +100,11 @@ class PipelineRunner:
             logger.info(f"TESTING MODE: {self.args.test_aa} data with {self.args.model_aa} model")
 
         precomputed_profiles = self._load_profile_from_csv()
+        barycenters = None
 
         if precomputed_profiles is not None:
             logger.info("Using pre-computed HMM profiles from CSV")
             classifier, all_profile_stats = self._build_classifier_from_profiles(precomputed_profiles)
-            barycenters = None
-
         else:
             barycenters = self._load_barycenters()
             signal_data = self._load_signals()
@@ -125,20 +114,18 @@ class PipelineRunner:
                 return
 
             variance_collectors = None
-            if self.args.variance_mode in ['segment', 'empirical']:
+            if self.args.variance_mode in ('segment', 'empirical'):
                 variance_collectors = self._collect_variances(signal_data, list(barycenters.keys()))
 
             classifier, all_profile_stats = self._build_classifier(barycenters, variance_collectors)
             self._save_profile_stats(all_profile_stats)
 
         signal_data = self._load_signals()
-
         if not signal_data:
             logger.error("No signal data loaded")
             return
 
         results, df = self._process_signals(signal_data, classifier)
-
         self.writer.save_results(results, df, self.args)
 
         if not self.args.no_plots:
@@ -151,7 +138,7 @@ class PipelineRunner:
             self._print_test_results(df)
 
     def _load_profile_from_csv(self) -> Optional[Dict[str, Dict[str, Tuple[float, float]]]]:
-        if not hasattr(self.args, 'profile_file') or self.args.profile_file is None:
+        if self.args.profile_file is None:
             return None
 
         profile_path = Path(self.args.profile_file)
@@ -160,7 +147,6 @@ class PipelineRunner:
             return None
 
         logger.info(f"Loading profile from CSV: {profile_path}")
-
         df = pd.read_csv(profile_path)
 
         required_cols = {'amino_acid', 'state', 'mean', 'std'}
@@ -182,19 +168,15 @@ class PipelineRunner:
         return all_profile_stats
 
     def _build_classifier_from_profiles(
-            self,
-            all_profile_stats: Dict[str, Dict[str, Tuple[float, float]]]
+        self,
+        all_profile_stats: Dict[str, Dict[str, Tuple[float, float]]]
     ) -> Tuple[HMMClassifier, Dict[str, Dict[str, Tuple[float, float]]]]:
         classifier = HMMClassifier(self.args.classification_mode)
-
         hmm_config = self.config['hmm'].copy()
-
-        # Load per-AA variance scales
         variance_scales = self._load_variance_scales()
         default_scale = getattr(self.args, 'variance_scale', 1.0)
 
-        # FILTER: Only build model for specified amino acid if --model-aa is set
-        if hasattr(self.args, 'model_aa') and self.args.model_aa:
+        if self.args.model_aa:
             aas_to_build = [self.args.model_aa]
             logger.info(f"Testing mode: Building model only for {self.args.model_aa}")
         else:
@@ -206,19 +188,16 @@ class PipelineRunner:
             if aa not in all_profile_stats:
                 logger.error(f"No profile stats found for {aa}")
                 continue
-            
+
             profile_stats = all_profile_stats[aa]
-            
-            # Get per-AA scale (or default)
             aa_scale = variance_scales.get(aa, default_scale)
 
-            # Create constructor with AA-specific scale
             constructor = HMMConstructor(
                 hmm_config,
                 variance_mode='barycenter',
                 variance_scale=aa_scale
             )
-            
+
             try:
                 model, _ = constructor.build_hmm_from_profile_stats(aa, profile_stats)
                 classifier.add_model(aa, model)
@@ -229,13 +208,12 @@ class PipelineRunner:
         return classifier, all_profile_stats
 
     def _save_profile_stats(
-            self,
-            all_profile_stats: Dict[str, Dict[str, Tuple[float, float]]]
+        self,
+        all_profile_stats: Dict[str, Dict[str, Tuple[float, float]]]
     ) -> None:
         rows = []
         for aa, profile_stats in sorted(all_profile_stats.items()):
-            n_states = len(profile_stats)
-            for i in range(n_states):
+            for i in range(len(profile_stats)):
                 key = str(i)
                 if key in profile_stats:
                     mean, std = profile_stats[key]
@@ -272,7 +250,7 @@ class PipelineRunner:
             loader = DataLoader(str(self.args.barycenter_file), 'json')
             data = loader.load_data()
             if data:
-                valid_aas = set('ACDEFGHIKLMNPQRSTVWY')
+                valid_aas = set(STANDARD_AMINO_ACIDS)
                 return {k: v for k, v in data.items() if k in valid_aas}
         elif self.args.data_dir:
             return self._load_barycenters_from_dir()
@@ -284,7 +262,7 @@ class PipelineRunner:
         barycenters = {}
         pattern = self.args.data_dir / "dba_{aa}_barycenter.json"
 
-        for aa in 'ACDEFGHIKLMNPQRSTVWY':
+        for aa in STANDARD_AMINO_ACIDS:
             path = Path(str(pattern).format(aa=aa.lower()))
             if path.exists():
                 loader = DataLoader(str(path), 'json')
@@ -306,21 +284,10 @@ class PipelineRunner:
             logger.error(f"Signal file not found: {signal_path}")
             return []
 
-        file_extension = signal_path.suffix.lower()
-        is_pickle = file_extension in ['.pkl', '.pickle']
+        is_pickle = signal_path.suffix.lower() in ('.pkl', '.pickle')
         data_type = 'pickle' if is_pickle or self.args.use_pickle else 'csv'
 
-        metadata = None
-        if hasattr(self.args, 'metadata_file') and self.args.metadata_file:
-            metadata_path = Path(self.args.metadata_file)
-            if metadata_path.exists():
-                with open(metadata_path, 'r') as f:
-                    metadata = json.load(f)
-                logger.info(f"Loaded metadata from {metadata_path.name}")
-                if 'traces' in metadata:
-                    logger.info(f"Metadata specifies {len(metadata['traces'])} traces to analyze")
-            else:
-                logger.warning(f"Metadata file not found: {metadata_path}")
+        metadata = self._load_metadata()
 
         loader = DataLoader(
             str(signal_path),
@@ -335,30 +302,52 @@ class PipelineRunner:
 
         if data:
             logger.info(f"Loaded {len(data)} signals from {signal_path.name}")
-
-            if hasattr(self.args, 'test_aa') and self.args.test_aa:
-                original_count = len(data)
-                data = [s for s in data if s.get('aa') == self.args.test_aa]
-                logger.info(f"Filtered to {len(data)} signals for amino acid {self.args.test_aa}")
-
-            if self.args.classification_mode != '20way':
-                valid_aas = set()
-                for cat in get_all_categories(self.args.classification_mode):
-                    valid_aas.update(get_amino_acids_in_category(cat, self.args.classification_mode))
-                original_count = len(data)
-                data = [s for s in data if s.get('aa') in valid_aas]
-                logger.info(f"Filtered to {len(data)}/{original_count} signals for {self.args.classification_mode} mode")
+            data = self._filter_signals(data)
 
         return data or []
 
+    def _load_metadata(self) -> Optional[Dict[str, Any]]:
+        if not self.args.metadata_file:
+            return None
+
+        metadata_path = Path(self.args.metadata_file)
+        if not metadata_path.exists():
+            logger.warning(f"Metadata file not found: {metadata_path}")
+            return None
+
+        with open(metadata_path, 'r') as f:
+            metadata = json.load(f)
+
+        logger.info(f"Loaded metadata from {metadata_path.name}")
+        if 'traces' in metadata:
+            logger.info(f"Metadata specifies {len(metadata['traces'])} traces to analyze")
+
+        return metadata
+
+    def _filter_signals(self, data: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        if self.args.test_aa:
+            original_count = len(data)
+            data = [s for s in data if s.get('aa') == self.args.test_aa]
+            logger.info(f"Filtered to {len(data)}/{original_count} signals for amino acid {self.args.test_aa}")
+
+        if self.args.classification_mode != '20way':
+            valid_aas = set()
+            for cat in get_all_categories(self.args.classification_mode):
+                valid_aas.update(get_amino_acids_in_category(cat, self.args.classification_mode))
+            original_count = len(data)
+            data = [s for s in data if s.get('aa') in valid_aas]
+            logger.info(f"Filtered to {len(data)}/{original_count} signals for {self.args.classification_mode} mode")
+
+        return data
+
     def _collect_variances(
-            self,
-            signal_data: List[Dict[str, Any]],
-            amino_acids: List[str]
+        self,
+        signal_data: List[Dict[str, Any]],
+        amino_acids: List[str]
     ) -> Dict[str, SegmentVarianceCollector]:
         collectors = {aa: SegmentVarianceCollector() for aa in amino_acids}
 
-        aa_signals = defaultdict(list)
+        aa_signals: Dict[str, List[Dict[str, Any]]] = defaultdict(list)
         for record in signal_data:
             aa = record.get('aa', '')
             if aa in amino_acids:
@@ -368,7 +357,6 @@ class PipelineRunner:
 
         for aa in amino_acids:
             signals = aa_signals[aa][:10]
-
             if not signals:
                 continue
 
@@ -378,13 +366,12 @@ class PipelineRunner:
                     raw_data = record['cleaned_segment']
                     if isinstance(raw_data, list) and len(raw_data) > 0:
                         if isinstance(raw_data[0], (list, np.ndarray)):
-                            variances = []
-                            for seg in raw_data:
-                                if seg is not None:
-                                    seg_array = np.array(seg).flatten()
-                                    if len(seg_array) > 0:
-                                        variances.append(float(np.var(seg_array)))
-                            if len(variances) > 0:
+                            variances = [
+                                float(np.var(np.array(seg).flatten()))
+                                for seg in raw_data
+                                if seg is not None and len(np.array(seg).flatten()) > 0
+                            ]
+                            if variances:
                                 collectors[aa].add_signal_variances(variances)
                                 processed += 1
                         else:
@@ -393,7 +380,7 @@ class PipelineRunner:
                             collectors[aa].add_signal_variances(result['variances'].tolist())
                             processed += 1
                 except Exception as e:
-                    logger.debug(f"Error processing signal for variance: {e}")
+                    logger.warning(f"Error processing signal for variance ({aa}): {e}")
 
             if processed > 0:
                 logger.info(f"  {aa}: Collected variances from {processed} signals")
@@ -407,28 +394,24 @@ class PipelineRunner:
     ) -> Tuple[HMMClassifier, Dict[str, Dict[str, Tuple[float, float]]]]:
         classifier = HMMClassifier(self.args.classification_mode)
         all_profile_stats = {}
-        
         variance_scales = self._load_variance_scales()
-        
         hmm_config = self.config['hmm'].copy()
-    
+
         logger.info(f"Building models for amino acids: {sorted(barycenters.keys())}")
-    
-        for aa in barycenters:
-            profile_arrays = barycenters[aa]
-            
+
+        for aa, profile_arrays in barycenters.items():
             aa_scale = variance_scales.get(aa, self.args.variance_scale)
-            
+
             constructor = HMMConstructor(
-                hmm_config, 
+                hmm_config,
                 variance_mode=self.args.variance_mode,
                 variance_scale=aa_scale
             )
-    
+
             segment_variances = None
-            if self.args.variance_mode in ['segment', 'empirical'] and variance_collectors and aa in variance_collectors:
+            if self.args.variance_mode in ('segment', 'empirical') and variance_collectors and aa in variance_collectors:
                 segment_variances = variance_collectors[aa].get_average_variances()
-    
+
             try:
                 model, profile_stats = constructor.build_hmm_from_arrays(
                     aa, profile_arrays, segment_variances
@@ -437,13 +420,13 @@ class PipelineRunner:
                 all_profile_stats[aa] = profile_stats
             except Exception as e:
                 logger.error(f"Error building model for {aa}: {e}")
-    
+
         return classifier, all_profile_stats
 
     def _process_signals(
-            self,
-            signal_data: List[Dict[str, Any]],
-            classifier: HMMClassifier
+        self,
+        signal_data: List[Dict[str, Any]],
+        classifier: HMMClassifier
     ) -> Tuple[Dict[str, Dict[str, Any]], pd.DataFrame]:
         if self.args.testing_mode:
             signal_data = signal_data[:self.args.test_limit]
@@ -459,14 +442,17 @@ class PipelineRunner:
                     self.args.seg_mode
                 )
 
-                signal_key = f"{record['run']}_{record['channel']}_{record.get('segment', i)}_{record.get('aa', 'unknown')}"
+                signal_key = (
+                    f"{record['run']}_{record['channel']}_"
+                    f"{record.get('segment', i)}_{record.get('aa', 'unknown')}"
+                )
                 results[signal_key] = result
 
                 if i % 100 == 0:
                     logger.info(f"Processed {i}/{len(signal_data)} signals")
 
             except Exception as e:
-                logger.debug(f"Error processing signal {i}: {e}")
+                logger.warning(f"Error processing signal {i}: {e}")
 
         logger.info(f"Successfully processed {len(results)} signals")
 
@@ -474,8 +460,8 @@ class PipelineRunner:
         return results, df
 
     def _create_summary_dataframe(
-            self,
-            results: Dict[str, Dict[str, Any]]
+        self,
+        results: Dict[str, Dict[str, Any]]
     ) -> pd.DataFrame:
         rows = []
         for signal_key, result in results.items():
@@ -494,34 +480,45 @@ class PipelineRunner:
 
         return pd.DataFrame(rows)
 
+    # Visualization
     def _generate_visualizations(
-            self,
-            results: Dict[str, Dict[str, Any]],
-            df: pd.DataFrame,
-            barycenters: Optional[Dict[str, List[np.ndarray]]],
-            variance_collectors: Optional[Dict[str, SegmentVarianceCollector]],
-            classifier: Optional[HMMClassifier] = None
+        self,
+        results: Dict[str, Dict[str, Any]],
+        df: pd.DataFrame,
+        barycenters: Optional[Dict[str, List[np.ndarray]]],
+        variance_collectors: Optional[Dict[str, SegmentVarianceCollector]],
+        classifier: Optional[HMMClassifier] = None
     ) -> None:
         plot_dir = self.output_dir / "visualizations"
         plot_dir.mkdir(exist_ok=True)
 
         if not self.is_testing_mode and 'predicted_category' in df.columns:
-            try:
-                from vrhmm.visualization import generate_classification_report
-                generate_classification_report(
-                    df,
-                    self.args.classification_mode,
-                    str(plot_dir)
-                )
-                logger.info(f"Saved classification visualizations to {plot_dir}")
-            except ImportError:
-                logger.warning("Classification visualization modules not available")
-
+            self._plot_classification_report(df, plot_dir)
             self._generate_pairwise_matrix(results, classifier, plot_dir)
-
         elif self.is_testing_mode:
             logger.info("Testing mode: Skipping classification visualizations")
 
+        self._plot_hmm_diagnostics(results, barycenters, variance_collectors, plot_dir)
+
+    def _plot_classification_report(self, df: pd.DataFrame, plot_dir: Path) -> None:
+        try:
+            from vrhmm.visualization import generate_classification_report
+            generate_classification_report(
+                df,
+                self.args.classification_mode,
+                str(plot_dir)
+            )
+            logger.info(f"Saved classification visualizations to {plot_dir}")
+        except ImportError:
+            logger.warning("Classification visualization modules not available")
+
+    def _plot_hmm_diagnostics(
+        self,
+        results: Dict[str, Dict[str, Any]],
+        barycenters: Optional[Dict[str, List[np.ndarray]]],
+        variance_collectors: Optional[Dict[str, SegmentVarianceCollector]],
+        plot_dir: Path
+    ) -> None:
         try:
             from vrhmm.visualization.signal_plots import (
                 plot_hmm_segmentation_and_path,
@@ -532,148 +529,164 @@ class PipelineRunner:
                 plot_skip_distribution,
                 plot_backslip_by_position
             )
-
-            logger.info("Generating HMM signal visualizations...")
-
-            if results:
-                using_metadata = hasattr(self.args, 'metadata_file') and self.args.metadata_file is not None
-
-                if using_metadata:
-                    logger.info(
-                        f"Metadata filtering detected - generating individual plots for all {len(results)} traces")
-                    individual_plots_dir = plot_dir / "individual_traces"
-                    individual_plots_dir.mkdir(exist_ok=True)
-
-                    sorted_keys = sorted(results.keys())
-
-                    for idx, signal_key in enumerate(sorted_keys, 1):
-                        result = results[signal_key]
-                        amino_acid = result.get('amino_acid', 'unknown')
-                        log_prob = result.get('log_probability', float('-inf'))
-
-                        parts = signal_key.split('_')
-                        run = parts[0] if len(parts) > 0 else 'unknown'
-                        channel = parts[1] if len(parts) > 1 else 'unknown'
-
-                        trace_filename = f"{idx:02d}_{run}_Ch{channel}_{amino_acid}_LogP{log_prob:.1f}.pdf"
-                        trace_path = individual_plots_dir / trace_filename
-
-                        plot_hmm_segmentation_and_path(
-                            signal=result['z_normalized_signal'],
-                            segment_results=result['segment_results'],
-                            state_sequence=result.get('state_sequence', []),
-                            full_path=result.get('full_path', []),
-                            signal_key=signal_key,
-                            save_path=str(trace_path)
-                        )
-
-                        if idx % 5 == 0:
-                            logger.info(f"  Generated {idx}/{len(results)} individual plots")
-
-                    logger.info(f"Saved {len(results)} individual trace plots to {individual_plots_dir}")
-
-                else:
-                    best_signal_key = max(
-                        results.keys(),
-                        key=lambda k: results[k].get('log_probability', float('-inf'))
-                    )
-                    best_result = results[best_signal_key]
-
-                    best_trace_path = plot_dir / f"best_trace_{self.args.test_aa}_{self.timestamp}.pdf"
-                    plot_hmm_segmentation_and_path(
-                        signal=best_result['z_normalized_signal'],
-                        segment_results=best_result['segment_results'],
-                        state_sequence=best_result.get('state_sequence', []),
-                        full_path=best_result.get('full_path', []),
-                        signal_key=f"BEST - {best_signal_key}",
-                        save_path=str(best_trace_path)
-                    )
-                    logger.info(f"Saved best trace plot: {best_trace_path.name}")
-
-                multi_panel_path = plot_dir / f"hmm_multi_panel_{self.args.test_aa}_{self.timestamp}.pdf"
-                plot_multi_panel_hmm_states(
-                    results,
-                    max_panels=min(10, len(results)) if using_metadata else 10,
-                    save_path=str(multi_panel_path),
-                    title=f"HMM State Alignment - {self.args.test_aa}"
-                )
-
-                pileup_path = plot_dir / f"segment_pileup_{self.args.test_aa}_{self.timestamp}.pdf"
-                plot_segment_pileup(
-                    results,
-                    max_traces=min(10, len(results)),
-                    save_path=str(pileup_path),
-                    amino_acid=self.args.test_aa
-                )
-
-                profile_stats = None
-                if barycenters and self.args.model_aa in barycenters:
-                    profile_arrays = barycenters[self.args.model_aa]
-                    profile_stats = {}
-
-                    if self.args.variance_mode in ['segment', 'empirical'] and variance_collectors:
-                        if self.args.model_aa in variance_collectors:
-                            empirical_variances = variance_collectors[self.args.model_aa].get_average_variances()
-                            for i in range(min(len(profile_arrays), len(empirical_variances))):
-                                seg_mean = float(np.mean(profile_arrays[i]))
-                                emp_var = empirical_variances[i]
-                                if isinstance(emp_var, (list, np.ndarray)):
-                                    emp_var = float(np.mean(emp_var))
-                                else:
-                                    emp_var = float(emp_var)
-                                seg_std = float(np.sqrt(emp_var))
-                                profile_stats[str(i)] = (seg_mean, seg_std)
-                    else:
-                        for i, seg_array in enumerate(profile_arrays):
-                            seg_mean = float(np.mean(seg_array))
-                            seg_var = float(np.var(seg_array))
-                            if self.args.variance_mode == 'barycenter':
-                                seg_var = seg_var * self.args.variance_scale
-                            seg_std = float(np.sqrt(seg_var))
-                            profile_stats[str(i)] = (seg_mean, seg_std)
-
-                match_pileup_path = plot_dir / f"match_state_pileup_{self.args.test_aa}_{self.timestamp}.pdf"
-                plot_match_state_pileup(
-                    results,
-                    amino_acid=self.args.test_aa,
-                    barycenter_profile_stats=profile_stats,
-                    save_path=str(match_pileup_path)
-                )
-
-                backslip_path = plot_dir / f"backslip_distribution_{self.args.test_aa}_{self.timestamp}.pdf"
-                plot_backslip_distribution(
-                    results,
-                    amino_acid=self.args.test_aa,
-                    save_path=str(backslip_path),
-                    title=f"Backslip Distribution - {self.args.test_aa}"
-                )
-
-                skip_path = plot_dir / f"skip_distribution_{self.args.test_aa}_{self.timestamp}.pdf"
-                plot_skip_distribution(
-                    results,
-                    amino_acid=self.args.test_aa,
-                    save_path=str(skip_path),
-                    title=f"Skip Distribution - {self.args.test_aa}"
-                )
-
-                backslip_pos_path = plot_dir / f"backslip_by_position_{self.args.test_aa}_{self.timestamp}.pdf"
-                plot_backslip_by_position(
-                    results,
-                    amino_acid=self.args.test_aa,
-                    save_path=str(backslip_pos_path),
-                    title=f"Backslip/Skip Position Analysis - {self.args.test_aa}"
-                )
-
-                logger.info("HMM signal visualization generation complete")
-
         except ImportError as e:
             logger.warning(f"Signal visualization modules not available: {e}")
+            return
+
+        logger.info("Generating HMM signal visualizations...")
+
+        if not results:
+            return
+
+        using_metadata = self.args.metadata_file is not None
+
+        if using_metadata:
+            self._plot_individual_traces(results, plot_dir, plot_hmm_segmentation_and_path)
+        else:
+            self._plot_best_trace(results, plot_dir, plot_hmm_segmentation_and_path)
+
+        trace_count = min(10, len(results)) if using_metadata else 10
+
+        multi_panel_path = plot_dir / f"hmm_multi_panel_{self.args.test_aa}_{self.timestamp}.pdf"
+        plot_multi_panel_hmm_states(
+            results,
+            max_panels=trace_count,
+            save_path=str(multi_panel_path),
+            title=f"HMM State Alignment - {self.args.test_aa}"
+        )
+
+        pileup_path = plot_dir / f"segment_pileup_{self.args.test_aa}_{self.timestamp}.pdf"
+        plot_segment_pileup(
+            results,
+            max_traces=min(10, len(results)),
+            save_path=str(pileup_path),
+            amino_acid=self.args.test_aa
+        )
+
+        profile_stats = self._compute_profile_stats_for_plot(barycenters, variance_collectors)
+
+        match_pileup_path = plot_dir / f"match_state_pileup_{self.args.test_aa}_{self.timestamp}.pdf"
+        plot_match_state_pileup(
+            results,
+            amino_acid=self.args.test_aa,
+            barycenter_profile_stats=profile_stats,
+            save_path=str(match_pileup_path)
+        )
+
+        backslip_path = plot_dir / f"backslip_distribution_{self.args.test_aa}_{self.timestamp}.pdf"
+        plot_backslip_distribution(
+            results,
+            amino_acid=self.args.test_aa,
+            save_path=str(backslip_path),
+            title=f"Backslip Distribution - {self.args.test_aa}"
+        )
+
+        skip_path = plot_dir / f"skip_distribution_{self.args.test_aa}_{self.timestamp}.pdf"
+        plot_skip_distribution(
+            results,
+            amino_acid=self.args.test_aa,
+            save_path=str(skip_path),
+            title=f"Skip Distribution - {self.args.test_aa}"
+        )
+
+        backslip_pos_path = plot_dir / f"backslip_by_position_{self.args.test_aa}_{self.timestamp}.pdf"
+        plot_backslip_by_position(
+            results,
+            amino_acid=self.args.test_aa,
+            save_path=str(backslip_pos_path),
+            title=f"Backslip/Skip Position Analysis - {self.args.test_aa}"
+        )
+
+        logger.info("HMM signal visualization generation complete")
+
+    def _plot_individual_traces(self, results, plot_dir, plot_fn) -> None:
+        logger.info(f"Generating individual plots for all {len(results)} traces")
+        individual_dir = plot_dir / "individual_traces"
+        individual_dir.mkdir(exist_ok=True)
+
+        for idx, (signal_key, result) in enumerate(sorted(results.items()), 1):
+            amino_acid = result.get('amino_acid', 'unknown')
+            log_prob = result.get('log_probability', float('-inf'))
+
+            parts = signal_key.split('_')
+            run = parts[0] if parts else 'unknown'
+            channel = parts[1] if len(parts) > 1 else 'unknown'
+
+            filename = f"{idx:02d}_{run}_Ch{channel}_{amino_acid}_LogP{log_prob:.1f}.pdf"
+            plot_fn(
+                signal=result['z_normalized_signal'],
+                segment_results=result['segment_results'],
+                state_sequence=result.get('state_sequence', []),
+                full_path=result.get('full_path', []),
+                signal_key=signal_key,
+                save_path=str(individual_dir / filename)
+            )
+
+            if idx % 5 == 0:
+                logger.info(f"  Generated {idx}/{len(results)} individual plots")
+
+        logger.info(f"Saved {len(results)} individual trace plots to {individual_dir}")
+
+    def _plot_best_trace(self, results, plot_dir, plot_fn) -> None:
+        best_key = max(
+            results,
+            key=lambda k: results[k].get('log_probability', float('-inf'))
+        )
+        best_result = results[best_key]
+
+        path = plot_dir / f"best_trace_{self.args.test_aa}_{self.timestamp}.pdf"
+        plot_fn(
+            signal=best_result['z_normalized_signal'],
+            segment_results=best_result['segment_results'],
+            state_sequence=best_result.get('state_sequence', []),
+            full_path=best_result.get('full_path', []),
+            signal_key=f"BEST - {best_key}",
+            save_path=str(path)
+        )
+        logger.info(f"Saved best trace plot: {path.name}")
+
+    def _compute_profile_stats_for_plot(
+        self,
+        barycenters: Optional[Dict[str, List[np.ndarray]]],
+        variance_collectors: Optional[Dict[str, SegmentVarianceCollector]]
+    ) -> Optional[Dict[str, Tuple[float, float]]]:
+        if not barycenters or self.args.model_aa not in barycenters:
+            return None
+
+        profile_arrays = barycenters[self.args.model_aa]
+        profile_stats = {}
+
+        use_empirical = (
+            self.args.variance_mode in ('segment', 'empirical')
+            and variance_collectors
+            and self.args.model_aa in variance_collectors
+        )
+
+        if use_empirical:
+            empirical_variances = variance_collectors[self.args.model_aa].get_average_variances()
+            for i in range(min(len(profile_arrays), len(empirical_variances))):
+                seg_mean = float(np.mean(profile_arrays[i]))
+                emp_var = empirical_variances[i]
+                if isinstance(emp_var, (list, np.ndarray)):
+                    emp_var = float(np.mean(emp_var))
+                else:
+                    emp_var = float(emp_var)
+                profile_stats[str(i)] = (seg_mean, float(np.sqrt(emp_var)))
+        else:
+            for i, seg_array in enumerate(profile_arrays):
+                seg_mean = float(np.mean(seg_array))
+                seg_var = float(np.var(seg_array))
+                if self.args.variance_mode == 'barycenter':
+                    seg_var *= self.args.variance_scale
+                profile_stats[str(i)] = (seg_mean, float(np.sqrt(seg_var)))
+
+        return profile_stats
 
     def _generate_pairwise_matrix(
-            self,
-            results: Dict[str, Dict[str, Any]],
-            classifier: Optional[HMMClassifier],
-            plot_dir: Path
+        self,
+        results: Dict[str, Dict[str, Any]],
+        classifier: Optional[HMMClassifier],
+        plot_dir: Path
     ) -> None:
         """Generate pairwise classification matrix visualizations."""
         try:
@@ -682,59 +695,67 @@ class PipelineRunner:
                 plot_pairwise_confusion_summary,
                 plot_category_pairwise_matrix
             )
+        except ImportError as e:
+            logger.warning(f"Pairwise matrix visualization not available: {e}")
+            return
 
-            logger.info("Generating pairwise classification matrix...")
+        logger.info("Generating pairwise classification matrix...")
 
+        try:
             if self.args.classification_mode == '20way':
-                matrix_path = plot_dir / f"pairwise_accuracy_matrix_{self.timestamp}.pdf"
-                matrix_df = plot_pairwise_classification_matrix(
-                    results,
-                    classifier=classifier,
-                    metric='accuracy',
-                    save_path=str(matrix_path),
-                    title='Pairwise Amino Acid Classification Accuracy'
-                )
-
-                csv_path = plot_dir / f"pairwise_accuracy_matrix_{self.timestamp}.csv"
-                matrix_df.to_csv(csv_path)
-                logger.info(f"Saved pairwise matrix to: {matrix_path.name}")
-
-                llr_path = plot_dir / f"pairwise_llr_matrix_{self.timestamp}.pdf"
-                plot_pairwise_classification_matrix(
-                    results,
-                    classifier=classifier,
-                    metric='llr',
-                    save_path=str(llr_path),
-                    title='Pairwise Log-Likelihood Ratio'
-                )
-
-                summary_path = plot_dir / f"pairwise_confusion_summary_{self.timestamp}.pdf"
-                summary = plot_pairwise_confusion_summary(
-                    results,
-                    save_path=str(summary_path),
-                    top_n_confusions=15
-                )
-
-                logger.info(f"Pairwise classification summary:")
-                logger.info(f"  Total pairs: {summary['total_pairs']}")
-                logger.info(f"  Mean accuracy: {summary['mean_accuracy']:.3f}")
-                logger.info(f"  Pairs below random: {summary['pairs_below_random']}")
-                logger.info(f"  Pairs above 90%: {summary['pairs_above_90']}")
-
+                self._plot_20way_pairwise(results, classifier, plot_dir,
+                                          plot_pairwise_classification_matrix,
+                                          plot_pairwise_confusion_summary)
             else:
-                cat_matrix_path = plot_dir / f"pairwise_category_matrix_{self.args.classification_mode}_{self.timestamp}.pdf"
+                path = plot_dir / f"pairwise_category_matrix_{self.args.classification_mode}_{self.timestamp}.pdf"
                 plot_category_pairwise_matrix(
                     results,
                     self.args.classification_mode,
-                    save_path=str(cat_matrix_path)
+                    save_path=str(path)
                 )
-                logger.info(f"Saved category pairwise matrix to: {cat_matrix_path.name}")
-
-        except ImportError as e:
-            logger.warning(f"Pairwise matrix visualization not available: {e}")
+                logger.info(f"Saved category pairwise matrix to: {path.name}")
         except Exception as e:
             logger.error(f"Error generating pairwise matrix: {e}")
 
+    def _plot_20way_pairwise(self, results, classifier, plot_dir,
+                             plot_matrix_fn, plot_summary_fn) -> None:
+        matrix_path = plot_dir / f"pairwise_accuracy_matrix_{self.timestamp}.pdf"
+        matrix_df = plot_matrix_fn(
+            results,
+            classifier=classifier,
+            metric='accuracy',
+            save_path=str(matrix_path),
+            title='Pairwise Amino Acid Classification Accuracy'
+        )
+
+        csv_path = plot_dir / f"pairwise_accuracy_matrix_{self.timestamp}.csv"
+        matrix_df.to_csv(csv_path)
+        logger.info(f"Saved pairwise matrix to: {matrix_path.name}")
+
+        llr_path = plot_dir / f"pairwise_llr_matrix_{self.timestamp}.pdf"
+        plot_matrix_fn(
+            results,
+            classifier=classifier,
+            metric='llr',
+            save_path=str(llr_path),
+            title='Pairwise Log-Likelihood Ratio'
+        )
+
+        summary_path = plot_dir / f"pairwise_confusion_summary_{self.timestamp}.pdf"
+        summary = plot_summary_fn(
+            results,
+            save_path=str(summary_path),
+            top_n_confusions=15
+        )
+
+        logger.info(f"Pairwise classification summary:")
+        logger.info(f"  Total pairs: {summary['total_pairs']}")
+        logger.info(f"  Mean accuracy: {summary['mean_accuracy']:.3f}")
+        logger.info(f"  Pairs below random: {summary['pairs_below_random']}")
+        logger.info(f"  Pairs above 90%: {summary['pairs_above_90']}")
+
+        
+    # Reporting
     def _print_test_results(self, df: pd.DataFrame) -> None:
         if self.args.classification_mode != '20way':
             df['true_category'] = df['true_aa'].apply(

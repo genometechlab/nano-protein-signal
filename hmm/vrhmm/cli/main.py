@@ -2,18 +2,13 @@
 
 import sys
 import logging
-from pathlib import Path
-from datetime import datetime
-from typing import Optional, Dict, Any, List, Tuple
-
-import numpy as np
-import pandas as pd
+from typing import Optional, List
 
 from vrhmm.cli.args import create_parser
 from vrhmm.cli.runner import PipelineRunner
 from vrhmm.config import CONFIG
-from vrhmm.utils.types import ClassificationResult
 from vrhmm.visualization.signal_plots import configure_logging
+
 
 def setup_logging(debug: bool = False) -> None:
     """Configure logging for the application."""
@@ -22,6 +17,7 @@ def setup_logging(debug: bool = False) -> None:
         level=level,
         format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
     )
+
 
 def main(args: Optional[List[str]] = None) -> int:
     """Main entry point for vrhmm pipeline."""
@@ -39,6 +35,7 @@ def main(args: Optional[List[str]] = None) -> int:
     except Exception as e:
         logger.error(f"Pipeline failed: {e}")
         return 1
+
 
 if __name__ == "__main__":
     sys.exit(main())
