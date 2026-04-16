@@ -194,3 +194,70 @@ class TestPipeline:
         signal, _ = spiked_sine
         cleaned = clean_signal(signal, contamination=0.2, weight=0.05)
         assert len(cleaned) == len(signal)
+
+
+# =====================================================================
+# Batch processing
+# =====================================================================
+
+class TestBatchCleaner:
+    def _make_traces(self, n=20):
+        """Create n fake trace dicts."""
+        rng = np.random.default_rng(42)
+        traces = []
+        for i in range(n):
+            t = np.linspace(0, 1.0, 3012)
+            signal = np.sin(2 * np.pi * 50 * t) + rng.normal(0, 0.3, len(t))
+            signal[rng.choice(len(signal), 5, replace=False)] += rng.normal(0, 10, 5)
+            traces.append({
+                "trace_id": f"trace_{i:03d}",
+                "signal": signal,
+            })
+        return traces
+
+    def test_batch_processes_all_traces(self):
+        from nanoclean import BatchCleaner
+        traces = self._make_traces(10)
+        with BatchCleaner(n_workers=2) as bc:
+            df = bc.process_traces(traces, show_progress=False)
+        assert len(df) == 10
+        assert "cleaned" in df.columns
+        assert "noise_reduction" in df.columns
+
+    def test_batch_sequential_fallback(self):
+        """Small datasets should use sequential processing."""
+        from nanoclean import BatchCleaner
+        traces = self._make_traces(3)
+        with BatchCleaner(n_workers=2) as bc:
+            df = bc.process_traces(traces, show_progress=False)
+        assert len(df) == 3
+
+    def test_batch_handles_empty_input(self):
+        from nanoclean import BatchCleaner
+        with BatchCleaner() as bc:
+            df = bc.process_traces([], show_progress=False)
+        assert df.empty
+
+    def test_batch_skips_bad_traces(self):
+        from nanoclean import BatchCleaner
+        traces = self._make_traces(5)
+        traces[2]["signal"] = None  # bad trace
+        with BatchCleaner(n_workers=2) as bc:
+            df = bc.process_traces(traces, show_progress=False)
+        assert len(df) == 4  # 5 minus the bad one
+
+    def test_batch_custom_batch_size(self):
+        from nanoclean import BatchCleaner
+        traces = self._make_traces(12)
+        with BatchCleaner(n_workers=2, batch_size=3) as bc:
+            df = bc.process_traces(traces, show_progress=False)
+        assert len(df) == 12
+
+    def test_batch_context_manager_cleans_up(self):
+        from nanoclean import BatchCleaner
+        bc = BatchCleaner(n_workers=2)
+        traces = self._make_traces(8)
+        bc.process_traces(traces, show_progress=False)
+        assert bc._pool is not None
+        bc.shutdown()
+        assert bc._pool is None
