@@ -11,3 +11,4 @@ build/
 output/
 *.pkl
 .venv/
+results/
