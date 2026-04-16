@@ -19,6 +19,7 @@ __version__ = "1.0.0"
 from nanoclean.core.config import CleanerConfig
 from nanoclean.core.trace import TraceData
 from nanoclean.processing.cleaner import SignalCleaner
+from nanoclean.processing.batch import BatchCleaner
 from nanoclean.io.loader import (
     load_traces,
     load_fast5,
@@ -76,6 +77,7 @@ __all__ = [
     "CleanerConfig",
     "TraceData",
     "SignalCleaner",
+    "BatchCleaner",
     "load_traces",
     "load_fast5",
     "load_json",

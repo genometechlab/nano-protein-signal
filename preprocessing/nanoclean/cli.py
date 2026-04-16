@@ -5,14 +5,14 @@ Command-line interface for the signal cleaning pipeline.
 
 Usage::
 
-    # Clean a JSON file (defaults: isolation → tv → cwt_huber)
-    signal-cleaner data.json -o cleaned_output/
+    # Clean a JSON file with 6 workers (defaults: isolation → tv → cwt_huber)
+    nanoclean data.json -o cleaned_output/ --workers 6
 
     # Clean fast5 files with custom passes
-    signal-cleaner reads/ --first-pass cwt_huber --second-pass lowpass --no-third-pass
+    nanoclean reads/ --first-pass cwt_huber --second-pass lowpass --no-third-pass
 
-    # Limit to 50 traces for a quick test
-    signal-cleaner data.json --max-traces 50
+    # Limit to 50 traces for a quick test (sequential, no multiprocessing)
+    nanoclean data.json --max-traces 50 --workers 1
 """
 
 from __future__ import annotations
@@ -21,23 +21,13 @@ import argparse
 import logging
 import sys
 from pathlib import Path
-from datetime import datetime
-
-import numpy as np
-import pandas as pd
-from tqdm import tqdm
-
-from nanoclean.core.config import CleanerConfig
-from nanoclean.core.trace import TraceData
-from nanoclean.io.loader import load_traces
-from nanoclean.processing.cleaner import SignalCleaner
 
 logger = logging.getLogger("nanoclean")
 
 
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
-        prog="signal-cleaner",
+        prog="nanoclean",
         description="Multi-pass signal cleaning for nanopore trace data.",
     )
     p.add_argument(
@@ -65,6 +55,19 @@ def build_parser() -> argparse.ArgumentParser:
         "--no-third-pass",
         action="store_true",
         help="Disable the CWT+Huber refinement pass.",
+    )
+    p.add_argument(
+        "-w", "--workers",
+        type=int,
+        default=None,
+        help="Number of worker processes (default: cpu_count - 1, max 8). "
+             "Use 1 to disable multiprocessing.",
+    )
+    p.add_argument(
+        "--batch-size",
+        type=int,
+        default=None,
+        help="Traces per batch (default: auto-sized for load balancing).",
     )
     p.add_argument(
         "--max-traces",
@@ -101,6 +104,9 @@ def main(argv: list[str] | None = None) -> None:
         datefmt="%H:%M:%S",
     )
 
+    from nanoclean.core.config import CleanerConfig
+    from nanoclean.processing.batch import BatchCleaner
+
     # ---- Config --------------------------------------------------------
     config = CleanerConfig(
         first_pass_method=args.first_pass,
@@ -108,48 +114,26 @@ def main(argv: list[str] | None = None) -> None:
         third_pass_cwt=not args.no_third_pass,
         output_dir=args.output_dir,
     )
-    cleaner = SignalCleaner(config)
-    out_dir = Path(args.output_dir)
-    out_dir.mkdir(parents=True, exist_ok=True)
-
-    # ---- Load ----------------------------------------------------------
-    logger.info("Loading traces from %s", args.input)
-    raw_traces = load_traces(
-        args.input,
-        trace_keys=args.trace_keys,
-        max_traces=args.max_traces,
-    )
-    logger.info("Loaded %d traces", len(raw_traces))
-
-    if not raw_traces:
-        logger.warning("No traces found — nothing to do.")
-        sys.exit(0)
 
     # ---- Process -------------------------------------------------------
-    results = []
-    for t in tqdm(raw_traces, desc="Cleaning"):
-        trace = TraceData(
-            raw_signal=np.asarray(t["signal"], dtype=float),
-            metadata={k: v for k, v in t.items() if k != "signal"},
+    with BatchCleaner(
+        config=config,
+        n_workers=args.workers,
+        batch_size=args.batch_size,
+    ) as bc:
+        df, out_path = bc.process_file_and_save(
+            path=args.input,
+            output_dir=args.output_dir,
+            fmt=args.format,
+            trace_keys=args.trace_keys,
+            max_traces=args.max_traces,
         )
-        cleaner.process(trace)
-        results.append(trace.to_dict())
 
-    df = pd.DataFrame(results)
+    if df.empty:
+        logger.warning("No traces processed.")
+        sys.exit(0)
 
-    # ---- Save ----------------------------------------------------------
-    ts = datetime.now().strftime("%Y%m%d_%H%M%S")
-    if args.format == "pkl":
-        out_path = out_dir / f"cleaned_{ts}.pkl"
-        df.to_pickle(out_path)
-    elif args.format == "csv":
-        out_path = out_dir / f"cleaned_{ts}.csv"
-        df.to_csv(out_path, index=False)
-    elif args.format == "json":
-        out_path = out_dir / f"cleaned_{ts}.json"
-        df.to_json(out_path, orient="records", indent=2)
-
-    logger.info("Saved %d cleaned traces → %s", len(df), out_path)
+    logger.info("Done — %d traces → %s", len(df), out_path)
 
 
 if __name__ == "__main__":
