@@ -125,3 +125,84 @@ def compute_alignment_metrics(dp: np.ndarray, path: List[Tuple[int, int]]) -> di
         'deviation': deviation,
         'path_length': len(path)
     }
+    
+def compute_cost_matrix(segs1: List[np.ndarray], segs2: List[np.ndarray]) -> np.ndarray:
+    """
+    Compute pairwise DTW cost matrix between segment lists
+    
+    Parameters:
+    -----------
+    segs1 : list of arrays
+        First sequence segments
+    segs2 : list of arrays
+        Second sequence segments
+    
+    Returns:
+    --------
+    cost_mat : np.ndarray
+        Cost matrix
+    """
+    from tslearn.metrics import dtw as ts_dtw
+    
+    n_i, n_t = len(segs1), len(segs2)
+    cost_mat = np.zeros((n_i, n_t))
+    
+    for i in range(n_i):
+        for j in range(n_t):
+            cost_mat[i, j] = ts_dtw(
+                segs1[i].reshape(-1, 1),
+                segs2[j].reshape(-1, 1)
+            )
+    
+    return cost_mat
+
+
+def dtw_mean_and_dev(C: np.ndarray) -> Tuple[float, float]:
+    """
+    Compute DTW alignment cost and path deviation
+    
+    Parameters:
+    -----------
+    C : np.ndarray
+        Cost matrix
+    
+    Returns:
+    --------
+    mean_cost : float
+        Mean cost per aligned segment
+    mean_deviation : float
+        Mean deviation from diagonal
+    """
+    r, c = C.shape
+    acc = np.full((r, c), np.inf)
+    acc[0, 0] = C[0, 0]
+    
+    # Forward pass
+    for i in range(r):
+        for j in range(c):
+            if i == j == 0:
+                continue
+            acc[i, j] = C[i, j] + min(
+                acc[i-1, j] if i else np.inf,
+                acc[i, j-1] if j else np.inf,
+                acc[i-1, j-1] if i and j else np.inf
+            )
+    
+    # Backtrack for deviation
+    i, j = r-1, c-1
+    path_len = 1
+    dev_sum = 0
+    
+    while i or j:
+        dev_sum += abs(i - j)
+        opts = []
+        if i and j:
+            opts.append((acc[i-1, j-1], i-1, j-1))
+        if i:
+            opts.append((acc[i-1, j], i-1, j))
+        if j:
+            opts.append((acc[i, j-1], i, j-1))
+        _, i, j = min(opts, key=lambda x: x[0])
+        path_len += 1
+    
+    return acc[-1, -1] / path_len, dev_sum / path_len
