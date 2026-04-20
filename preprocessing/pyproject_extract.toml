@@ -1,0 +1,34 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "nano-extract"
+version = "0.1.0"
+description = "YY boundary detection and segment extraction for nanopore peptide signals"
+readme = "README.md"
+license = {text = "MIT"}
+requires-python = ">=3.9"
+dependencies = [
+    "numpy>=1.24",
+    "scipy>=1.10",
+    "pandas>=2.0",
+    "numba>=0.57",
+    "tqdm>=4.65",
+    "orjson>=3.8",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0",
+    "matplotlib>=3.7",
+]
+
+[project.scripts]
+nano-extract = "nano_extract.cli:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["nano_extract"]
+
+[tool.pytest.ini_options]
+testpaths = ["nano_extract/test"]

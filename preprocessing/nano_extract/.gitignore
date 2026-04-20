@@ -6,9 +6,9 @@ dist/
 build/
 .eggs/
 *.so
+.venv/
 .numba_cache/
 .pytest_cache/
-output/
+extracted/
 *.pkl
-.venv/
-results/
+.DS_Store
