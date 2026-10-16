@@ -115,7 +115,10 @@ class PipelineRunner:
 
             variance_collectors = None
             if self.args.variance_mode in ('segment', 'empirical'):
-                variance_collectors = self._collect_variances(signal_data, list(barycenters.keys()))
+                variance_data = signal_data
+                if getattr(self.args, 'variance_signal_file', None):
+                    variance_data = self._load_signals(self.args.variance_signal_file)
+                variance_collectors = self._collect_variances(variance_data, list(barycenters.keys()))
 
             classifier, all_profile_stats = self._build_classifier(barycenters, variance_collectors)
             self._save_profile_stats(all_profile_stats)
@@ -272,8 +275,10 @@ class PipelineRunner:
 
         return barycenters
 
-    def _load_signals(self) -> List[Dict[str, Any]]:
-        if self.args.signal_file:
+    def _load_signals(self, signal_file: Optional[Path] = None) -> List[Dict[str, Any]]:
+        if signal_file is not None:
+            signal_path = Path(signal_file)
+        elif self.args.signal_file:
             signal_path = Path(self.args.signal_file)
         elif self.args.data_dir:
             signal_path = Path(self.args.data_dir) / "signals.csv"

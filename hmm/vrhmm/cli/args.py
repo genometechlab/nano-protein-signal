@@ -84,6 +84,14 @@ def add_data_args(parser: argparse.ArgumentParser) -> None:
     )
 
     group.add_argument(
+        '--variance-signal-file',
+        type=Path,
+        default=None,
+        help='Signal file used only for segment-variance collection (e.g. the training set); '
+             'defaults to --signal-file'
+    )
+
+    group.add_argument(
         '--metadata-file',
         type=Path,
         default=None,
