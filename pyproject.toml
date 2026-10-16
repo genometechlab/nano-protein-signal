@@ -1,0 +1,35 @@
+# The repository's own code is not installed as a package. After `uv sync`,
+# run scripts with PYTHONPATH set to the repo root, preprocessing/ and hmm/ (see README).
+[project]
+name = "nano-protein-signal"
+version = "1.1.0"
+description = "Ionic current analysis of nanopore protein readouts"
+requires-python = ">=3.12,<3.13"
+dependencies = [
+  "numpy>=2.0",
+  "scipy>=1.16,<1.17",
+  "pandas>=2.3,<2.4",
+  "scikit-learn>=1.5",
+  "PyWavelets>=1.6",
+  "numba>=0.60",
+  "h5py>=3.11",
+  "orjson>=3.10",
+  "tqdm>=4.66",
+  "joblib>=1.4",
+  "ruptures==1.1.10",
+  "matplotlib>=3.8",
+  "seaborn==0.13.2",
+  "networkx>=3.2",        # required when yahmm is imported
+  "polars>=1.0",
+  "cython>=3.2,<3.3",     # builds the yahmm extension
+  "setuptools>=68",       # builds the yahmm extension on Python 3.12
+  "tslearn>=0.9.0",
+  "dtaidistance>=2.5.1",
+  "torch>=2.0.0",
+]
+
+[dependency-groups]
+dev = ["pytest>=8"]
+
+[tool.uv]
+package = false

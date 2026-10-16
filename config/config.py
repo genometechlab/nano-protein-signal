@@ -2,10 +2,12 @@
 Configuration file for nanopore protein signal analysis
 Modify parameters here for different analysis needs
 """
+import numpy as np
+
 #####################################Segmentation###########################################
 
 # Data paths
-DATA_PATH = "./data/raw_denoised_all_PASTOR_boundries.json"
+DATA_PATH = "./data/processed/Updated_UW_YY_Boundaries_for_OG_PASTORs.json"
 OUTPUT_DIR = "./output"
 
 # PASTOR sequences
