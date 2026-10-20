@@ -139,4 +139,4 @@ The PASTOR data:
 
 ## License
 
-[ADD LICENSE; see the LICENSE file]
+BSD-3; LICENSE.md
